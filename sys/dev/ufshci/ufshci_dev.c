@@ -565,6 +565,10 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 
 	/* Set TX/RX PWRMode */
 	ctrlr->tx_rx_power_mode = (fast_mode << rx_bit_shift) | fast_mode;
+	ufshci_printf(ctrlr,
+	    "switching UIC power mode: lanes=%u gear=%u series=%c pwr=0x%x\n",
+	    ctrlr->tx_lanes, ctrlr->hs_gear,
+	    hs_series == PA_HS_MODE_A ? 'A' : 'B', ctrlr->tx_rx_power_mode);
 	if (ufshci_uic_send_dme_set(ctrlr, PA_PWRMode, ctrlr->tx_rx_power_mode))
 		return (ENXIO);
 

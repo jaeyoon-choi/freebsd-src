@@ -249,6 +249,16 @@ ufshci_ctrlr_start(struct ufshci_controller *ctrlr, bool resetting)
 		return;
 	}
 
+	/*
+	 * Read device parameters before HS power mode negotiation so any
+	 * descriptor-based device handling is available while the link is
+	 * still in its initial mode.
+	 */
+	if (ufshci_dev_get_descriptor(ctrlr) != 0) {
+		ufshci_ctrlr_fail(ctrlr);
+		return;
+	}
+
 	/* Initialize Reference Clock */
 	if (ufshci_dev_init_reference_clock(ctrlr) != 0) {
 		ufshci_ctrlr_fail(ctrlr);
@@ -275,12 +285,6 @@ ufshci_ctrlr_start(struct ufshci_controller *ctrlr, bool resetting)
 
 	if ((ctrlr->quirks & UFSHCI_QUIRK_REINIT_AFTER_MAX_GEAR_SWITCH) &&
 	    ufshci_ctrlr_reinit_after_max_gear_switch(ctrlr) != 0) {
-		ufshci_ctrlr_fail(ctrlr);
-		return;
-	}
-
-	/* Read Controller Descriptor (Device, Geometry) */
-	if (ufshci_dev_get_descriptor(ctrlr) != 0) {
 		ufshci_ctrlr_fail(ctrlr);
 		return;
 	}
