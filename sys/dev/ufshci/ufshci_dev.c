@@ -303,6 +303,37 @@ ufshci_dev_qcom_ref_clk_ctrl(struct ufshci_controller *ctrlr, bool enable)
 }
 
 static int
+ufshci_dev_qcom_limit_hs_gear(struct ufshci_controller *ctrlr)
+{
+	uint32_t param0, host_max_hs_gear;
+
+	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
+		return (0);
+
+	param0 = bus_space_read_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_PARAM0);
+	host_max_hs_gear = UFSHCIV(UFSHCI_QCOM_PARAM0_REG_MAX_HS_GEAR, param0);
+	if (host_max_hs_gear == 0) {
+		ufshci_printf(ctrlr,
+		    "QCOM vendor max HS gear is 0, keeping negotiated gear %u\n",
+		    ctrlr->hs_gear);
+		return (0);
+	}
+
+	if (ctrlr->hs_gear > host_max_hs_gear) {
+		ufshci_printf(ctrlr,
+		    "limiting HS gear from %u to host max %u via QCOM PARAM0\n",
+		    ctrlr->hs_gear, host_max_hs_gear);
+		ctrlr->hs_gear = host_max_hs_gear;
+	} else {
+		ufshci_printf(ctrlr, "QCOM vendor max HS gear: %u\n",
+		    host_max_hs_gear);
+	}
+
+	return (0);
+}
+
+static int
 ufshci_dev_get_max_pwr_mode(struct ufshci_controller *ctrlr,
     uint32_t *hs_series, uint32_t *connected_tx_lanes,
     uint32_t *connected_rx_lanes)
@@ -363,6 +394,7 @@ ufshci_dev_get_max_pwr_mode(struct ufshci_controller *ctrlr,
 	}
 
 	ctrlr->hs_gear = min(ctrlr->max_rx_hs_gear, peer_max_hs_gear);
+	ufshci_dev_qcom_limit_hs_gear(ctrlr);
 
 	*hs_series = PA_HS_MODE_B;
 	if ((ctrlr->quirks & UFSHCI_QUIRK_HS_G5_RATE_A) &&
