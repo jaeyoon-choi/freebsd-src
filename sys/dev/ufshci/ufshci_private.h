@@ -333,6 +333,9 @@ struct ufshci_controller {
 #define UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ                                    \
 	4096 /* QCOM platforms such as QCOM24A5 require a 300MHz vendor timer \
 		and core clock setup before link startup. */
+#define UFSHCI_QUIRK_QCOM_DEV_REF_CLK_CTRL                                   \
+	8192 /* QCOM platforms require the device reference clock to be \
+		enabled before switching from PWM to HS mode. */
 
 	uint32_t ref_clk;
 

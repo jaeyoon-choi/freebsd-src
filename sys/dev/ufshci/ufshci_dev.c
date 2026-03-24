@@ -268,6 +268,41 @@ ufshci_dev_init_reference_clock(struct ufshci_controller *ctrlr)
 }
 
 static int
+ufshci_dev_qcom_ref_clk_ctrl(struct ufshci_controller *ctrlr, bool enable)
+{
+	uint32_t cfg1;
+	bool enabled;
+
+	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_DEV_REF_CLK_CTRL))
+		return (0);
+
+	cfg1 = bus_space_read_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_CFG1);
+	enabled = UFSHCIV(UFSHCI_QCOM_CFG1_REG_DEV_REF_CLK_EN, cfg1) != 0;
+	if (enabled == enable)
+		return (0);
+
+	if (enable)
+		cfg1 |= UFSHCIM(UFSHCI_QCOM_CFG1_REG_DEV_REF_CLK_EN);
+	else
+		cfg1 &= ~UFSHCIM(UFSHCI_QCOM_CFG1_REG_DEV_REF_CLK_EN);
+
+	bus_space_write_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_CFG1, cfg1);
+	(void)bus_space_read_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_CFG1);
+
+	/*
+	 * The ref clock must be stable before entering HS mode.
+	 * Linux applies the same 1us delay on enable.
+	 */
+	if (enable)
+		DELAY(1);
+
+	return (0);
+}
+
+static int
 ufshci_dev_get_max_pwr_mode(struct ufshci_controller *ctrlr,
     uint32_t *hs_series, uint32_t *connected_tx_lanes,
     uint32_t *connected_rx_lanes)
@@ -405,6 +440,12 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 
 	ctrlr->tx_lanes = min(connected_tx_lanes, connected_rx_lanes);
 	ctrlr->rx_lanes = ctrlr->tx_lanes;
+
+	ufshci_printf(ctrlr,
+	    "configuring UIC power mode: lanes=%u gear=%u series=%c\n",
+	    ctrlr->tx_lanes, ctrlr->hs_gear,
+	    hs_series == PA_HS_MODE_A ? 'A' : 'B');
+
 	if (ufshci_uic_send_dme_set(ctrlr, PA_ActiveTxDataLanes,
 		ctrlr->tx_lanes))
 		return (ENXIO);
@@ -485,6 +526,9 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 		return (ENXIO);
 	if (ufshci_uic_send_dme_set(ctrlr, DME_LocalAFC0ReqTimeOutVal,
 		DL_AFC0ReqTimeOutVal_Default))
+		return (ENXIO);
+
+	if (ufshci_dev_qcom_ref_clk_ctrl(ctrlr, true) != 0)
 		return (ENXIO);
 
 	/* Set TX/RX PWRMode */

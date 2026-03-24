@@ -45,8 +45,12 @@ ufshci_uic_power_mode_ready(struct ufshci_controller *ctrlr)
 	hcs = ufshci_mmio_read_4(ctrlr, hcs);
 	if (UFSHCIV(UFSHCI_HCS_REG_UPMCRS, hcs) != 0x01) {
 		ufshci_printf(ctrlr,
-		    "Power mode change request status error: 0x%x\n",
-		    UFSHCIV(UFSHCI_HCS_REG_UPMCRS, hcs));
+		    "Power mode change request status error: 0x%x (lanes=%u gear=%u series=%c)\n",
+		    UFSHCIV(UFSHCI_HCS_REG_UPMCRS, hcs), ctrlr->tx_lanes,
+		    ctrlr->hs_gear,
+		    ctrlr->hs_gear == 5 &&
+			(ctrlr->quirks & UFSHCI_QUIRK_HS_G5_RATE_A) ? 'A' :
+			'B');
 		return (ENXIO);
 	}
 
