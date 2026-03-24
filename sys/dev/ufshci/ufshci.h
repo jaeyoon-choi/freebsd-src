@@ -48,8 +48,29 @@
 #define PA_PWRModeUserData4		 0x15B4
 #define PA_PWRModeUserData5		 0x15B5
 
+#define PA_LocalTxLCCEnable		 0x155E
 #define PA_TxHsAdaptType		 0x15D4
 #define PA_PWRMode			 0x1571
+
+#define PA_REFRESH_ADAPT		 0x00
+#define PA_INITIAL_ADAPT		 0x01
+#define PA_NO_ADAPT			 0x03
+
+/*
+ * Qualcomm vendor-specific UniPro attributes used on recent QCOM UFS
+ * controllers to program core clock timing before link startup.
+ */
+#define DME_VS_CORE_CLK_CTRL			 0xD002
+#define DME_VS_CORE_CLK_CTRL_REG_CLK_1US_CYCLES_SHIFT	 0
+#define DME_VS_CORE_CLK_CTRL_REG_CLK_1US_CYCLES_MASK	 0xFF
+#define DME_VS_CORE_CLK_CTRL_REG_CORE_CLK_DIV_EN_SHIFT	 8
+#define DME_VS_CORE_CLK_CTRL_REG_CORE_CLK_DIV_EN_MASK	 0x1
+#define DME_VS_CORE_CLK_CTRL_REG_CLK_1US_CYCLES_V4_SHIFT 16
+#define DME_VS_CORE_CLK_CTRL_REG_CLK_1US_CYCLES_V4_MASK	 0xFFF
+
+#define PA_VS_CORE_CLK_40NS_CYCLES			 0x9007
+#define PA_VS_CORE_CLK_40NS_CYCLES_REG_CYCLES_SHIFT	 0
+#define PA_VS_CORE_CLK_40NS_CYCLES_REG_CYCLES_MASK	 0x7F
 
 #define DME_LocalFC0ProtectionTimeOutVal 0xD041
 #define DME_LocalTC0ReplayTimeOutVal	 0xD042
@@ -59,6 +80,9 @@
 #define DL_FC0ProtectionTimeOutVal_Default 8191
 #define DL_TC0ReplayTimeOutVal_Default	   65535
 #define DL_AFC0ReqTimeOutVal_Default	   32767
+#define DL_FC1ProtectionTimeOutVal_Default 8191
+#define DL_TC1ReplayTimeOutVal_Default	   65535
+#define DL_AFC1ReqTimeOutVal_Default	   32767
 
 /* UFS Spec 4.1, section 6.4 "Reference Clock" */
 enum ufshci_attribute_reference_clock {

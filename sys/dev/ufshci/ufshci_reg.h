@@ -459,6 +459,23 @@ struct ufshci_registers {
 /* Helper macro to construct a field value */
 #define UFSHCIF(name, x) (((x)&name##_MASK) << name##_SHIFT)
 
+/*
+ * Qualcomm vendor-specific host controller registers. These live in the
+ * vendor space starting at offset 0xC0 in the generic UFSHCI map.
+ */
+#define UFSHCI_QCOM_REG_SYS1CLK_1US	0xC0
+#define UFSHCI_QCOM_REG_CFG0		0xD8
+#define UFSHCI_QCOM_REG_CFG1		0xDC
+#define UFSHCI_QCOM_REG_HW_VERSION	0xE4
+
+#define UFSHCI_QCOM_CFG0_REG_QUNIPRO_G4_SEL_SHIFT 5
+#define UFSHCI_QCOM_CFG0_REG_QUNIPRO_G4_SEL_MASK	 0x1
+#define UFSHCI_QCOM_CFG1_REG_QUNIPRO_SEL_SHIFT	 0
+#define UFSHCI_QCOM_CFG1_REG_QUNIPRO_SEL_MASK	 0x1
+
+#define UFSHCI_QCOM_HW_VERSION_REG_MAJOR_SHIFT 28
+#define UFSHCI_QCOM_HW_VERSION_REG_MAJOR_MASK	0xF
+
 #define UFSHCI_DUMP_REG(ctrlr, member)                                        \
 	do {                                                                  \
 		uint32_t _val = ufshci_mmio_read_4(ctrlr, member);            \

@@ -12,6 +12,8 @@
 #include "ufshci_private.h"
 #include "ufshci_reg.h"
 
+#define UFSHCI_QCOM_CORE_CLK_300MHZ 300
+
 static void
 ufshci_ctrlr_fail(struct ufshci_controller *ctrlr)
 {
@@ -19,6 +21,145 @@ ufshci_ctrlr_fail(struct ufshci_controller *ctrlr)
 
 	ufshci_req_queue_fail(ctrlr, &ctrlr->task_mgmt_req_queue);
 	ufshci_req_queue_fail(ctrlr, &ctrlr->transfer_req_queue);
+}
+
+static uint32_t
+ufshci_ctrlr_qcom_get_hw_major(struct ufshci_controller *ctrlr)
+{
+	uint32_t hw_ver;
+
+	hw_ver = bus_space_read_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_HW_VERSION);
+
+	return (UFSHCIV(UFSHCI_QCOM_HW_VERSION_REG_MAJOR, hw_ver));
+}
+
+static void
+ufshci_ctrlr_qcom_select_unipro_mode(struct ufshci_controller *ctrlr)
+{
+	uint32_t cfg0, cfg1, hw_major;
+
+	cfg1 = bus_space_read_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_CFG1);
+	cfg1 |= UFSHCIM(UFSHCI_QCOM_CFG1_REG_QUNIPRO_SEL);
+	bus_space_write_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_CFG1, cfg1);
+	(void)bus_space_read_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_CFG1);
+
+	hw_major = ufshci_ctrlr_qcom_get_hw_major(ctrlr);
+	if (hw_major < 5)
+		return;
+
+	cfg0 = bus_space_read_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_CFG0);
+	cfg0 &= ~UFSHCIM(UFSHCI_QCOM_CFG0_REG_QUNIPRO_G4_SEL);
+	bus_space_write_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_CFG0, cfg0);
+	(void)bus_space_read_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_CFG0);
+}
+
+static int
+ufshci_ctrlr_qcom_set_clk_40ns_cycles(struct ufshci_controller *ctrlr,
+    uint32_t cycles_in_1us)
+{
+	uint32_t cycles_in_40ns, hw_major, reg;
+
+	hw_major = ufshci_ctrlr_qcom_get_hw_major(ctrlr);
+	if (hw_major < 4)
+		return (0);
+
+	switch (cycles_in_1us) {
+	case 38:
+		cycles_in_40ns = 2;
+		break;
+	case 75:
+		cycles_in_40ns = 3;
+		break;
+	case 100:
+		cycles_in_40ns = 4;
+		break;
+	case 150:
+		cycles_in_40ns = 6;
+		break;
+	case 202:
+		cycles_in_40ns = 8;
+		break;
+	case 300:
+		cycles_in_40ns = 12;
+		break;
+	case 403:
+		cycles_in_40ns = 16;
+		break;
+	default:
+		ufshci_printf(ctrlr,
+		    "unsupported QCOM UniPro core clock %u MHz\n",
+		    cycles_in_1us);
+		return (EINVAL);
+	}
+
+	if (ufshci_uic_send_dme_get(ctrlr, PA_VS_CORE_CLK_40NS_CYCLES, &reg))
+		return (ENXIO);
+
+	reg &= ~UFSHCIM(PA_VS_CORE_CLK_40NS_CYCLES_REG_CYCLES);
+	reg |= UFSHCIF(PA_VS_CORE_CLK_40NS_CYCLES_REG_CYCLES,
+	    cycles_in_40ns);
+
+	if (ufshci_uic_send_dme_set(ctrlr, PA_VS_CORE_CLK_40NS_CYCLES, reg))
+		return (ENXIO);
+
+	return (0);
+}
+
+static int
+ufshci_ctrlr_qcom_pre_link_startup(struct ufshci_controller *ctrlr)
+{
+	uint32_t core_clk_ctrl_reg, cycles_in_1us, hw_major;
+
+	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
+		return (0);
+
+	/*
+	 * QCOM24A5-class platforms expose 300MHz max values for both core_clk
+	 * and core_clk_unipro in the upstream DT.
+	 */
+	cycles_in_1us = UFSHCI_QCOM_CORE_CLK_300MHZ;
+	hw_major = ufshci_ctrlr_qcom_get_hw_major(ctrlr);
+
+	ufshci_ctrlr_qcom_select_unipro_mode(ctrlr);
+
+	bus_space_write_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_SYS1CLK_1US, cycles_in_1us);
+	(void)bus_space_read_4(ctrlr->bus_tag, ctrlr->bus_handle,
+	    UFSHCI_QCOM_REG_SYS1CLK_1US);
+
+	if (ufshci_uic_send_dme_get(ctrlr, DME_VS_CORE_CLK_CTRL,
+	    &core_clk_ctrl_reg))
+		return (ENXIO);
+
+	if (hw_major >= 4) {
+		core_clk_ctrl_reg &=
+		    ~UFSHCIM(DME_VS_CORE_CLK_CTRL_REG_CLK_1US_CYCLES_V4);
+		core_clk_ctrl_reg |=
+		    UFSHCIF(DME_VS_CORE_CLK_CTRL_REG_CLK_1US_CYCLES_V4,
+			cycles_in_1us);
+	} else {
+		core_clk_ctrl_reg &=
+		    ~UFSHCIM(DME_VS_CORE_CLK_CTRL_REG_CLK_1US_CYCLES);
+		core_clk_ctrl_reg |=
+		    UFSHCIF(DME_VS_CORE_CLK_CTRL_REG_CLK_1US_CYCLES,
+			cycles_in_1us);
+	}
+
+	core_clk_ctrl_reg &=
+	    ~UFSHCIM(DME_VS_CORE_CLK_CTRL_REG_CORE_CLK_DIV_EN);
+
+	if (ufshci_uic_send_dme_set(ctrlr, DME_VS_CORE_CLK_CTRL,
+	    core_clk_ctrl_reg))
+		return (ENXIO);
+
+	return (ufshci_ctrlr_qcom_set_clk_40ns_cycles(ctrlr, cycles_in_1us));
 }
 
 /* Some controllers require a reinit after switching to the max gear. */
@@ -258,6 +399,16 @@ ufshci_ctrlr_enable(struct ufshci_controller *ctrlr)
 	error = ufshci_ctrlr_enable_host_ctrlr(ctrlr);
 	if (error)
 		return (error);
+
+	error = ufshci_ctrlr_qcom_pre_link_startup(ctrlr);
+	if (error)
+		return (error);
+
+	if (ctrlr->quirks & UFSHCI_QUIRK_DISABLE_HOST_TX_LCC) {
+		error = ufshci_uic_send_dme_set(ctrlr, PA_LocalTxLCCEnable, 0);
+		if (error)
+			return (error);
+	}
 
 	/* Send DME_LINKSTARTUP command to start the link startup procedure */
 	error = ufshci_uic_send_dme_link_startup(ctrlr);

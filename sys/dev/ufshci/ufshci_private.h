@@ -321,9 +321,18 @@ struct ufshci_controller {
 	      does not work. */
 #define UFSHCI_QUIRK_REINIT_AFTER_MAX_GEAR_SWITCH                            \
 	128 /* Some controllers need to reinit the device after gear switch. \
-	     */
+		     */
 #define UFSHCI_QUIRK_BROKEN_LSDBS_MCQS_CAP \
 	256 /* Some controllers have their LSDB and MCQS fields reset to 0. */
+#define UFSHCI_QUIRK_HS_G5_RATE_A                                            \
+	512 /* Some controllers only support HS-G5 with Rate-A. */
+#define UFSHCI_QUIRK_DISABLE_HOST_TX_LCC                                     \
+	1024 /* Some controllers require TX LCC to be disabled before link startup. */
+#define UFSHCI_QUIRK_INITIAL_ADAPT_FOR_HS_G4                                 \
+	2048 /* Some controllers require PA_INITIAL_ADAPT for HS-G4 and above. */
+#define UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ                                    \
+	4096 /* QCOM platforms such as QCOM24A5 require a 300MHz vendor timer \
+		and core clock setup before link startup. */
 
 	uint32_t ref_clk;
 

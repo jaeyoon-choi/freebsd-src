@@ -316,8 +316,8 @@ ufshci_dev_init_unipro(struct ufshci_controller *ctrlr)
 int
 ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 {
-	/* HSSerise: A = 1, B = 2 */
-	const uint32_t hs_series = 2;
+	/* HSSeries: A = 1, B = 2 */
+	uint32_t hs_series = 2;
 	/*
 	 * TX/RX PWRMode:
 	 * - TX[3:0], RX[7:4]
@@ -374,6 +374,24 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 		return (ENXIO);
 
 	/*
+	 * Qualcomm UFS HW version 5 supports HS-G5 only with Rate-A.
+	 * The Linux qcom variant driver enforces the same combination.
+	 */
+	if ((ctrlr->quirks & UFSHCI_QUIRK_HS_G5_RATE_A) &&
+	    ctrlr->hs_gear == 5)
+		hs_series = 1;
+
+	if (ctrlr->quirks & UFSHCI_QUIRK_INITIAL_ADAPT_FOR_HS_G4) {
+		uint32_t adapt_type;
+
+		adapt_type = ctrlr->hs_gear >= 4 ? PA_INITIAL_ADAPT :
+		    PA_NO_ADAPT;
+		if (ufshci_uic_send_dme_set(ctrlr, PA_TxHsAdaptType,
+		    adapt_type))
+			return (ENXIO);
+	}
+
+	/*
 	 * Set termination
 	 * - HS-MODE = ON / LS-MODE = OFF
 	 */
@@ -397,13 +415,13 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 		DL_AFC0ReqTimeOutVal_Default))
 		return (ENXIO);
 	if (ufshci_uic_send_dme_set(ctrlr, PA_PWRModeUserData3,
-		DL_FC0ProtectionTimeOutVal_Default))
+		DL_FC1ProtectionTimeOutVal_Default))
 		return (ENXIO);
 	if (ufshci_uic_send_dme_set(ctrlr, PA_PWRModeUserData4,
-		DL_TC0ReplayTimeOutVal_Default))
+		DL_TC1ReplayTimeOutVal_Default))
 		return (ENXIO);
 	if (ufshci_uic_send_dme_set(ctrlr, PA_PWRModeUserData5,
-		DL_AFC0ReqTimeOutVal_Default))
+		DL_AFC1ReqTimeOutVal_Default))
 		return (ENXIO);
 
 	if (ufshci_uic_send_dme_set(ctrlr, DME_LocalFC0ProtectionTimeOutVal,
