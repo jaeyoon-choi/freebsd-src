@@ -53,7 +53,8 @@ static struct ufshci_acpi_device {
 } ufshci_acpi_devices[] = {
 	{ "QCOM24A5", "Qualcomm Snapdragon X Elite UFS Host Controller",
 	    UFSHCI_REF_CLK_19_2MHz,
-	    UFSHCI_QUIRK_BROKEN_LSDBS_MCQS_CAP |
+	    UFSHCI_QUIRK_REINIT_AFTER_MAX_GEAR_SWITCH |
+			UFSHCI_QUIRK_BROKEN_LSDBS_MCQS_CAP |
 			UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ |
 			UFSHCI_QUIRK_HS_G5_RATE_A |
 			UFSHCI_QUIRK_DISABLE_HOST_TX_LCC |

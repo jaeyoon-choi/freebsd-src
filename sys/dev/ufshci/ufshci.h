@@ -56,6 +56,9 @@
 #define PA_INITIAL_ADAPT		 0x01
 #define PA_NO_ADAPT			 0x03
 
+#define PA_HS_MODE_A			 0x01
+#define PA_HS_MODE_B			 0x02
+
 /*
  * Qualcomm vendor-specific UniPro attributes used on recent QCOM UFS
  * controllers to program core clock timing before link startup.

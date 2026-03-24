@@ -203,7 +203,18 @@ ufshci_ctrlr_reinit_after_max_gear_switch(struct ufshci_controller *ctrlr)
 		return (error);
 
 	/* Initialize unipro */
-	return (ufshci_dev_init_unipro(ctrlr));
+	error = ufshci_dev_init_unipro(ctrlr);
+	if (error != 0)
+		return (error);
+
+	if (!(ctrlr->quirks & UFSHCI_QUIRK_IGNORE_UIC_POWER_MODE)) {
+		error = ufshci_dev_init_uic_power_mode(ctrlr);
+		if (error != 0)
+			return (error);
+		ufshci_dev_init_uic_link_state(ctrlr);
+	}
+
+	return (0);
 }
 
 static void

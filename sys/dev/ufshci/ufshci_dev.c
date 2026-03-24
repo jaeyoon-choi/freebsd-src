@@ -267,6 +267,76 @@ ufshci_dev_init_reference_clock(struct ufshci_controller *ctrlr)
 	return (0);
 }
 
+static int
+ufshci_dev_get_max_pwr_mode(struct ufshci_controller *ctrlr,
+    uint32_t *hs_series, uint32_t *connected_tx_lanes,
+    uint32_t *connected_rx_lanes)
+{
+	uint32_t peer_max_hs_gear;
+
+	if (ufshci_uic_send_dme_get(ctrlr, PA_AvailTxDataLanes,
+	    &ctrlr->max_tx_lanes))
+		return (ENXIO);
+	if (ufshci_uic_send_dme_get(ctrlr, PA_AvailRxDataLanes,
+	    &ctrlr->max_rx_lanes))
+		return (ENXIO);
+
+	*connected_tx_lanes = ctrlr->max_tx_lanes;
+	*connected_rx_lanes = ctrlr->max_rx_lanes;
+	if (ufshci_uic_send_dme_get(ctrlr, PA_ConnectedTxDataLanes,
+	    connected_tx_lanes) != 0) {
+		ufshci_printf(ctrlr,
+		    "failed to read PA_ConnectedTxDataLanes, falling back to available lanes\n");
+		*connected_tx_lanes = ctrlr->max_tx_lanes;
+	}
+	if (ufshci_uic_send_dme_get(ctrlr, PA_ConnectedRxDataLanes,
+	    connected_rx_lanes) != 0) {
+		ufshci_printf(ctrlr,
+		    "failed to read PA_ConnectedRxDataLanes, falling back to available lanes\n");
+		*connected_rx_lanes = ctrlr->max_rx_lanes;
+	}
+
+	if (*connected_tx_lanes == 0 || *connected_rx_lanes == 0) {
+		ufshci_printf(ctrlr,
+		    "invalid connected lanes value. tx=%u rx=%u, falling back to available lanes\n",
+		    *connected_tx_lanes, *connected_rx_lanes);
+		*connected_tx_lanes = ctrlr->max_tx_lanes;
+		*connected_rx_lanes = ctrlr->max_rx_lanes;
+	}
+	if (*connected_tx_lanes != *connected_rx_lanes) {
+		ufshci_printf(ctrlr,
+		    "asymmetric connected lanes. tx=%u rx=%u, using the minimum\n",
+		    *connected_tx_lanes, *connected_rx_lanes);
+	}
+
+	if (ufshci_uic_send_dme_get(ctrlr, PA_MaxRxHSGear,
+	    &ctrlr->max_rx_hs_gear))
+		return (ENXIO);
+	peer_max_hs_gear = ctrlr->max_rx_hs_gear;
+	if (ufshci_uic_send_dme_peer_get(ctrlr, PA_MaxRxHSGear,
+	    &peer_max_hs_gear) != 0) {
+		ufshci_printf(ctrlr,
+		    "failed to read peer PA_MaxRxHSGear, falling back to local max gear\n");
+		peer_max_hs_gear = ctrlr->max_rx_hs_gear;
+	}
+
+	if (ctrlr->max_rx_hs_gear == 0 || peer_max_hs_gear == 0) {
+		ufshci_printf(ctrlr,
+		    "invalid max HS gear value. local=%u peer=%u, falling back to local max gear\n",
+		    ctrlr->max_rx_hs_gear, peer_max_hs_gear);
+		peer_max_hs_gear = ctrlr->max_rx_hs_gear;
+	}
+
+	ctrlr->hs_gear = min(ctrlr->max_rx_hs_gear, peer_max_hs_gear);
+
+	*hs_series = PA_HS_MODE_B;
+	if ((ctrlr->quirks & UFSHCI_QUIRK_HS_G5_RATE_A) &&
+	    ctrlr->hs_gear == 5)
+		*hs_series = PA_HS_MODE_A;
+
+	return (0);
+}
+
 int
 ufshci_dev_init_unipro(struct ufshci_controller *ctrlr)
 {
@@ -316,8 +386,6 @@ ufshci_dev_init_unipro(struct ufshci_controller *ctrlr)
 int
 ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 {
-	/* HSSeries: A = 1, B = 2 */
-	uint32_t hs_series = 2;
 	/*
 	 * TX/RX PWRMode:
 	 * - TX[3:0], RX[7:4]
@@ -325,24 +393,18 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 	 */
 	const uint32_t fast_mode = 1;
 	const uint32_t rx_bit_shift = 4;
+	uint32_t connected_tx_lanes, connected_rx_lanes;
+	uint32_t hs_series;
 	uint32_t peer_granularity;
+	int error;
 
-	/* Update lanes with available TX/RX lanes */
-	if (ufshci_uic_send_dme_get(ctrlr, PA_AvailTxDataLanes,
-		&ctrlr->max_tx_lanes))
-		return (ENXIO);
-	if (ufshci_uic_send_dme_get(ctrlr, PA_AvailRxDataLanes,
-		&ctrlr->max_rx_lanes))
-		return (ENXIO);
+	error = ufshci_dev_get_max_pwr_mode(ctrlr, &hs_series,
+	    &connected_tx_lanes, &connected_rx_lanes);
+	if (error != 0)
+		return (error);
 
-	/* Get max HS-GEAR value */
-	if (ufshci_uic_send_dme_get(ctrlr, PA_MaxRxHSGear,
-		&ctrlr->max_rx_hs_gear))
-		return (ENXIO);
-
-	/* Set the data lane to max */
-	ctrlr->tx_lanes = ctrlr->max_tx_lanes;
-	ctrlr->rx_lanes = ctrlr->max_rx_lanes;
+	ctrlr->tx_lanes = min(connected_tx_lanes, connected_rx_lanes);
+	ctrlr->rx_lanes = ctrlr->tx_lanes;
 	if (ufshci_uic_send_dme_set(ctrlr, PA_ActiveTxDataLanes,
 		ctrlr->tx_lanes))
 		return (ENXIO);
@@ -366,20 +428,11 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 		}
 	}
 
-	/* Set HS-GEAR to max gear */
-	ctrlr->hs_gear = ctrlr->max_rx_hs_gear;
+	/* Set HS-GEAR to the maximum gear supported by both ends. */
 	if (ufshci_uic_send_dme_set(ctrlr, PA_TxGear, ctrlr->hs_gear))
 		return (ENXIO);
 	if (ufshci_uic_send_dme_set(ctrlr, PA_RxGear, ctrlr->hs_gear))
 		return (ENXIO);
-
-	/*
-	 * Qualcomm UFS HW version 5 supports HS-G5 only with Rate-A.
-	 * The Linux qcom variant driver enforces the same combination.
-	 */
-	if ((ctrlr->quirks & UFSHCI_QUIRK_HS_G5_RATE_A) &&
-	    ctrlr->hs_gear == 5)
-		hs_series = 1;
 
 	if (ctrlr->quirks & UFSHCI_QUIRK_INITIAL_ADAPT_FOR_HS_G4) {
 		uint32_t adapt_type;
