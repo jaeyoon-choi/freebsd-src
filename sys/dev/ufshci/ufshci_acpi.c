@@ -14,6 +14,7 @@
 #include <sys/smp.h>
 
 #include <vm/vm.h>
+#include <vm/pmap.h>
 
 #include <contrib/dev/acpica/include/acpi.h>
 
@@ -22,12 +23,15 @@
 #include "ufshci_private.h"
 
 #define UFSHCI_QCOM_QMP_PHY_V6_WINDOW_SIZE 0x2000
+#define UFSHCI_QCOM_QMP_PHY_V6_HOST_DELTA 0x4000
 
 static int ufshci_acpi_probe(device_t);
 static int ufshci_acpi_attach(device_t);
 static int ufshci_acpi_detach(device_t);
 static int ufshci_acpi_suspend(device_t);
 static int ufshci_acpi_resume(device_t);
+static void ufshci_acpi_map_qcom_phy_direct(
+    struct ufshci_controller *ctrlr);
 static void ufshci_acpi_release_resources(struct ufshci_controller *ctrlr);
 
 static device_method_t ufshci_acpi_methods[] = {
@@ -134,6 +138,8 @@ ufshci_acpi_allocate_memory(struct ufshci_controller *ctrlr)
 	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
 		return (0);
 
+	ctrlr->qcom_phy_resource_id = -1;
+
 	/*
 	 * X1E/SM8550-class firmware may expose the QMP UFS PHY as a
 	 * separate memory resource next to the host controller window.
@@ -163,17 +169,74 @@ ufshci_acpi_allocate_memory(struct ufshci_controller *ctrlr)
 		break;
 	}
 
+	if (ctrlr->qcom_phy_resource == NULL)
+		ufshci_acpi_map_qcom_phy_direct(ctrlr);
+
 	return (0);
+}
+
+static void
+ufshci_acpi_map_qcom_phy_direct(struct ufshci_controller *ctrlr)
+{
+	uint64_t phy_paddr_tunable;
+	rman_res_t host_paddr;
+	void *va;
+
+	phy_paddr_tunable = 0;
+	if (TUNABLE_UINT64_FETCH("hw.ufshci.qcom.phy_paddr",
+	    &phy_paddr_tunable)) {
+		ctrlr->qcom_phy_paddr = (bus_addr_t)phy_paddr_tunable;
+	} else {
+		host_paddr = rman_get_start(ctrlr->resource);
+		if (host_paddr < UFSHCI_QCOM_QMP_PHY_V6_HOST_DELTA) {
+			ufshci_printf(ctrlr,
+			    "QCOM QMP UFS PHY direct map skipped: "
+			    "host BAR %#jx is smaller than delta %#x\n",
+			    (uintmax_t)host_paddr,
+			    UFSHCI_QCOM_QMP_PHY_V6_HOST_DELTA);
+			return;
+		}
+		ctrlr->qcom_phy_paddr = host_paddr -
+		    UFSHCI_QCOM_QMP_PHY_V6_HOST_DELTA;
+	}
+
+	va = pmap_mapdev((vm_paddr_t)ctrlr->qcom_phy_paddr,
+	    UFSHCI_QCOM_QMP_PHY_V6_WINDOW_SIZE);
+	if (va == NULL) {
+		ufshci_printf(ctrlr,
+		    "QCOM QMP UFS PHY direct map failed at %#jx\n",
+		    (uintmax_t)ctrlr->qcom_phy_paddr);
+		ctrlr->qcom_phy_paddr = 0;
+		return;
+	}
+
+	ctrlr->qcom_phy_bus_tag = ctrlr->bus_tag;
+	ctrlr->qcom_phy_bus_handle = (bus_space_handle_t)va;
+	ctrlr->qcom_phy_is_direct_map = true;
+	ufshci_printf(ctrlr,
+	    "using QCOM QMP UFS PHY direct map at %#jx\n",
+	    (uintmax_t)ctrlr->qcom_phy_paddr);
 }
 
 static void
 ufshci_acpi_release_resources(struct ufshci_controller *ctrlr)
 {
+	if (ctrlr->qcom_phy_is_direct_map) {
+		pmap_unmapdev((void *)ctrlr->qcom_phy_bus_handle,
+		    UFSHCI_QCOM_QMP_PHY_V6_WINDOW_SIZE);
+		ctrlr->qcom_phy_is_direct_map = false;
+	}
+
 	if (ctrlr->qcom_phy_resource != NULL) {
 		bus_release_resource(ctrlr->dev, SYS_RES_MEMORY,
 		    ctrlr->qcom_phy_resource_id, ctrlr->qcom_phy_resource);
 		ctrlr->qcom_phy_resource = NULL;
 	}
+
+	ctrlr->qcom_phy_bus_tag = NULL;
+	ctrlr->qcom_phy_bus_handle = 0;
+	ctrlr->qcom_phy_resource_id = -1;
+	ctrlr->qcom_phy_paddr = 0;
 
 	if (ctrlr->resource != NULL) {
 		bus_release_resource(ctrlr->dev, SYS_RES_MEMORY,

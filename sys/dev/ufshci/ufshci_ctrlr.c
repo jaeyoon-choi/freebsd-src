@@ -176,11 +176,19 @@ ufshci_ctrlr_qcom_get_hw_major(struct ufshci_controller *ctrlr)
 
 static bool
 ufshci_ctrlr_qcom_get_phy_mmio(struct ufshci_controller *ctrlr,
-    bus_space_tag_t *tag, bus_space_handle_t *handle, bus_size_t *base_offset)
+    bus_space_tag_t *tag, bus_space_handle_t *handle,
+    bus_size_t *base_offset)
 {
 	int mmio_offset;
 
 	if (ctrlr->qcom_phy_resource != NULL) {
+		*tag = ctrlr->qcom_phy_bus_tag;
+		*handle = ctrlr->qcom_phy_bus_handle;
+		*base_offset = 0;
+		return (true);
+	}
+
+	if (ctrlr->qcom_phy_is_direct_map) {
 		*tag = ctrlr->qcom_phy_bus_tag;
 		*handle = ctrlr->qcom_phy_bus_handle;
 		*base_offset = 0;
