@@ -76,6 +76,35 @@
 #define UFSHCI_QCOM_QMP_PHY_SW_PWRDN (1U << 0)
 #define UFSHCI_QCOM_QMP_PHY_SERDES_START (1U << 0)
 #define UFSHCI_QCOM_QMP_PHY_PCS_READY (1U << 0)
+#define UFSHCI_QCOM_GCC_UFS_PHY_GDSCR 0x77004
+#define UFSHCI_QCOM_GCC_UFS_PHY_AXI_CLK_CBCR 0x77018
+#define UFSHCI_QCOM_GCC_UFS_PHY_AHB_CLK_CBCR 0x77024
+#define UFSHCI_QCOM_GCC_UFS_PHY_TX_SYMBOL_0_CLK_CBCR 0x77028
+#define UFSHCI_QCOM_GCC_UFS_PHY_RX_SYMBOL_0_CLK_CBCR 0x7702c
+#define UFSHCI_QCOM_GCC_UFS_PHY_AXI_CLK_SRC_CMD_RCGR 0x77030
+#define UFSHCI_QCOM_GCC_UFS_PHY_UNIPRO_CORE_CLK_CBCR 0x77068
+#define UFSHCI_QCOM_GCC_UFS_PHY_ICE_CORE_CLK_CBCR 0x77074
+#define UFSHCI_QCOM_GCC_UFS_PHY_ICE_CORE_CLK_SRC_CMD_RCGR 0x77080
+#define UFSHCI_QCOM_GCC_UFS_PHY_UNIPRO_CORE_CLK_SRC_CMD_RCGR 0x77098
+#define UFSHCI_QCOM_GCC_UFS_PHY_PHY_AUX_CLK_CBCR 0x770b0
+#define UFSHCI_QCOM_GCC_UFS_PHY_RX_SYMBOL_1_CLK_CBCR 0x770cc
+#define UFSHCI_QCOM_GCC_AGGRE_UFS_PHY_AXI_CLK_CBCR 0x770e4
+#define UFSHCI_QCOM_TCSR_UFS_PHY_CLKREF_EN 0x15118
+#define UFSHCI_QCOM_RCG_CFG_REG 0x4
+#define UFSHCI_QCOM_RCG_CMD_UPDATE (1U << 0)
+#define UFSHCI_QCOM_RCG_CFG_SRC_SEL_SHIFT 8
+#define UFSHCI_QCOM_GDSCR_SW_COLLAPSE (1U << 0)
+#define UFSHCI_QCOM_GDSCR_HW_CONTROL (1U << 1)
+#define UFSHCI_QCOM_GDSCR_SW_OVERRIDE (1U << 2)
+#define UFSHCI_QCOM_GDSCR_RETAIN_FF_ENABLE (1U << 11)
+#define UFSHCI_QCOM_GDSCR_CLK_DIS_WAIT_SHIFT 12
+#define UFSHCI_QCOM_GDSCR_EN_FEW_WAIT_SHIFT 16
+#define UFSHCI_QCOM_GDSCR_EN_REST_WAIT_SHIFT 20
+#define UFSHCI_QCOM_GDSCR_CFG_OFFSET 0x4
+#define UFSHCI_QCOM_GDSCR_POWER_UP_COMPLETE (1U << 16)
+#define UFSHCI_QCOM_GCC_PARENT_GPLL0_OUT_MAIN 1
+#define UFSHCI_QCOM_GCC_PARENT_GPLL4_OUT_MAIN 5
+#define UFSHCI_QCOM_RCG_HID_DIV(pre_div) (((pre_div) << 1) - 1)
 
 struct ufshci_qcom_qmp_reg_val {
 	bus_size_t reg;
@@ -163,6 +192,215 @@ ufshci_ctrlr_fail(struct ufshci_controller *ctrlr)
 	ufshci_req_queue_fail(ctrlr, &ctrlr->transfer_req_queue);
 }
 
+static bool
+ufshci_ctrlr_qcom_has_gcc_mmio(struct ufshci_controller *ctrlr)
+{
+
+	return (ctrlr->qcom_gcc_is_direct_map);
+}
+
+static bool
+ufshci_ctrlr_qcom_has_tcsr_mmio(struct ufshci_controller *ctrlr)
+{
+
+	return (ctrlr->qcom_tcsr_is_direct_map);
+}
+
+static uint32_t
+ufshci_ctrlr_qcom_gcc_read_4(struct ufshci_controller *ctrlr, bus_size_t reg)
+{
+
+	KASSERT(ufshci_ctrlr_qcom_has_gcc_mmio(ctrlr),
+	    ("QCOM GCC MMIO is not mapped"));
+	return (bus_space_read_4(ctrlr->qcom_gcc_bus_tag,
+	    ctrlr->qcom_gcc_bus_handle, reg));
+}
+
+static void
+ufshci_ctrlr_qcom_gcc_write_4(struct ufshci_controller *ctrlr, bus_size_t reg,
+    uint32_t val)
+{
+
+	KASSERT(ufshci_ctrlr_qcom_has_gcc_mmio(ctrlr),
+	    ("QCOM GCC MMIO is not mapped"));
+	bus_space_write_4(ctrlr->qcom_gcc_bus_tag, ctrlr->qcom_gcc_bus_handle,
+	    reg, val);
+	(void)bus_space_read_4(ctrlr->qcom_gcc_bus_tag,
+	    ctrlr->qcom_gcc_bus_handle, reg);
+}
+
+static uint32_t
+ufshci_ctrlr_qcom_tcsr_read_4(struct ufshci_controller *ctrlr, bus_size_t reg)
+{
+
+	KASSERT(ufshci_ctrlr_qcom_has_tcsr_mmio(ctrlr),
+	    ("QCOM TCSR MMIO is not mapped"));
+	return (bus_space_read_4(ctrlr->qcom_tcsr_bus_tag,
+	    ctrlr->qcom_tcsr_bus_handle, reg));
+}
+
+static void
+ufshci_ctrlr_qcom_tcsr_write_4(struct ufshci_controller *ctrlr, bus_size_t reg,
+    uint32_t val)
+{
+
+	KASSERT(ufshci_ctrlr_qcom_has_tcsr_mmio(ctrlr),
+	    ("QCOM TCSR MMIO is not mapped"));
+	bus_space_write_4(ctrlr->qcom_tcsr_bus_tag, ctrlr->qcom_tcsr_bus_handle,
+	    reg, val);
+	(void)bus_space_read_4(ctrlr->qcom_tcsr_bus_tag,
+	    ctrlr->qcom_tcsr_bus_handle, reg);
+}
+
+static int
+ufshci_ctrlr_qcom_update_rcgr(struct ufshci_controller *ctrlr,
+    bus_size_t cmd_rcgr)
+{
+	uint32_t cmd;
+	int timeout_us;
+
+	ufshci_ctrlr_qcom_gcc_write_4(ctrlr, cmd_rcgr,
+	    UFSHCI_QCOM_RCG_CMD_UPDATE);
+	for (timeout_us = 0; timeout_us < 500; timeout_us++) {
+		cmd = ufshci_ctrlr_qcom_gcc_read_4(ctrlr, cmd_rcgr);
+		if ((cmd & UFSHCI_QCOM_RCG_CMD_UPDATE) == 0)
+			return (0);
+		DELAY(1);
+	}
+
+	ufshci_printf(ctrlr, "QCOM GCC RCG update timed out at %#zx\n",
+	    cmd_rcgr);
+	return (ETIMEDOUT);
+}
+
+static int
+ufshci_ctrlr_qcom_configure_rcgr(struct ufshci_controller *ctrlr,
+    bus_size_t cmd_rcgr, uint32_t parent_cfg, uint32_t pre_div)
+{
+	uint32_t cfg;
+
+	cfg = UFSHCI_QCOM_RCG_HID_DIV(pre_div);
+	cfg |= parent_cfg << UFSHCI_QCOM_RCG_CFG_SRC_SEL_SHIFT;
+	ufshci_ctrlr_qcom_gcc_write_4(ctrlr, cmd_rcgr + UFSHCI_QCOM_RCG_CFG_REG,
+	    cfg);
+	return (ufshci_ctrlr_qcom_update_rcgr(ctrlr, cmd_rcgr));
+}
+
+static void
+ufshci_ctrlr_qcom_enable_branch(struct ufshci_controller *ctrlr,
+    bus_size_t cbcr)
+{
+	uint32_t val;
+
+	val = ufshci_ctrlr_qcom_gcc_read_4(ctrlr, cbcr);
+	if ((val & 0x1) != 0)
+		return;
+	val |= 0x1;
+	ufshci_ctrlr_qcom_gcc_write_4(ctrlr, cbcr, val);
+}
+
+static int
+ufshci_ctrlr_qcom_enable_gdsc(struct ufshci_controller *ctrlr,
+    bus_size_t gdscr)
+{
+	uint32_t val;
+	int timeout_us;
+
+	val = ufshci_ctrlr_qcom_gcc_read_4(ctrlr, gdscr);
+	val &= ~(UFSHCI_QCOM_GDSCR_SW_COLLAPSE |
+	    UFSHCI_QCOM_GDSCR_HW_CONTROL |
+	    UFSHCI_QCOM_GDSCR_SW_OVERRIDE);
+	val |= UFSHCI_QCOM_GDSCR_RETAIN_FF_ENABLE;
+	val &= ~((0xf << UFSHCI_QCOM_GDSCR_CLK_DIS_WAIT_SHIFT) |
+	    (0xf << UFSHCI_QCOM_GDSCR_EN_FEW_WAIT_SHIFT) |
+	    (0xf << UFSHCI_QCOM_GDSCR_EN_REST_WAIT_SHIFT));
+	val |= 0xf << UFSHCI_QCOM_GDSCR_CLK_DIS_WAIT_SHIFT;
+	val |= 0x2 << UFSHCI_QCOM_GDSCR_EN_FEW_WAIT_SHIFT;
+	val |= 0x2 << UFSHCI_QCOM_GDSCR_EN_REST_WAIT_SHIFT;
+	ufshci_ctrlr_qcom_gcc_write_4(ctrlr, gdscr, val);
+
+	for (timeout_us = 0; timeout_us < 2000; timeout_us++) {
+		val = ufshci_ctrlr_qcom_gcc_read_4(ctrlr,
+		    gdscr + UFSHCI_QCOM_GDSCR_CFG_OFFSET);
+		if ((val & UFSHCI_QCOM_GDSCR_POWER_UP_COMPLETE) != 0)
+			return (0);
+		DELAY(1);
+	}
+
+	ufshci_printf(ctrlr, "QCOM GCC GDSC power-up timed out at %#zx\n",
+	    gdscr);
+	return (ETIMEDOUT);
+}
+
+static int
+ufshci_ctrlr_qcom_prepare_acpi_bringup(struct ufshci_controller *ctrlr)
+{
+	int error;
+
+	/*
+	 * Execute the minimum X1E80100 ACPI PEP subset we can currently drive
+	 * directly: PHY GDSC, GCC clock roots/branches, and the TCSR clkref.
+	 */
+	if (!ctrlr->qcom_acpi_bringup_enabled || ctrlr->qcom_acpi_pwrseq_done)
+		return (0);
+	if (!ctrlr->qcom_acpi_bringup_ready ||
+	    !ufshci_ctrlr_qcom_has_gcc_mmio(ctrlr) ||
+	    !ufshci_ctrlr_qcom_has_tcsr_mmio(ctrlr)) {
+		ufshci_printf(ctrlr,
+		    "QCOM ACPI bring-up backend unavailable, keeping initial UIC power mode\n");
+		return (ENXIO);
+	}
+
+	error = ufshci_ctrlr_qcom_enable_gdsc(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_GDSCR);
+	if (error != 0)
+		return (error);
+
+	error = ufshci_ctrlr_qcom_configure_rcgr(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_AXI_CLK_SRC_CMD_RCGR,
+	    UFSHCI_QCOM_GCC_PARENT_GPLL0_OUT_MAIN, 2);
+	if (error != 0)
+		return (error);
+	error = ufshci_ctrlr_qcom_configure_rcgr(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_UNIPRO_CORE_CLK_SRC_CMD_RCGR,
+	    UFSHCI_QCOM_GCC_PARENT_GPLL0_OUT_MAIN, 2);
+	if (error != 0)
+		return (error);
+	error = ufshci_ctrlr_qcom_configure_rcgr(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_ICE_CORE_CLK_SRC_CMD_RCGR,
+	    UFSHCI_QCOM_GCC_PARENT_GPLL4_OUT_MAIN, 2);
+	if (error != 0)
+		return (error);
+
+	ufshci_ctrlr_qcom_enable_branch(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_AXI_CLK_CBCR);
+	ufshci_ctrlr_qcom_enable_branch(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_UNIPRO_CORE_CLK_CBCR);
+	ufshci_ctrlr_qcom_enable_branch(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_ICE_CORE_CLK_CBCR);
+	ufshci_ctrlr_qcom_enable_branch(ctrlr,
+	    UFSHCI_QCOM_GCC_AGGRE_UFS_PHY_AXI_CLK_CBCR);
+	ufshci_ctrlr_qcom_enable_branch(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_AHB_CLK_CBCR);
+	ufshci_ctrlr_qcom_enable_branch(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_PHY_AUX_CLK_CBCR);
+	ufshci_ctrlr_qcom_enable_branch(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_TX_SYMBOL_0_CLK_CBCR);
+	ufshci_ctrlr_qcom_enable_branch(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_RX_SYMBOL_0_CLK_CBCR);
+	ufshci_ctrlr_qcom_enable_branch(ctrlr,
+	    UFSHCI_QCOM_GCC_UFS_PHY_RX_SYMBOL_1_CLK_CBCR);
+
+	ufshci_ctrlr_qcom_tcsr_write_4(ctrlr, UFSHCI_QCOM_TCSR_UFS_PHY_CLKREF_EN,
+	    ufshci_ctrlr_qcom_tcsr_read_4(ctrlr,
+	    UFSHCI_QCOM_TCSR_UFS_PHY_CLKREF_EN) | 0x1);
+
+	ctrlr->qcom_acpi_pwrseq_done = true;
+	ufshci_printf(ctrlr,
+	    "QCOM ACPI direct PHY power sequence enabled via GCC/TCSR\n");
+	return (0);
+}
+
 static uint32_t
 ufshci_ctrlr_qcom_get_hw_major(struct ufshci_controller *ctrlr)
 {
@@ -180,6 +418,10 @@ ufshci_ctrlr_qcom_get_phy_mmio(struct ufshci_controller *ctrlr,
     bus_size_t *base_offset)
 {
 	int mmio_offset;
+
+	if (ctrlr->qcom_acpi_bringup_enabled && !ctrlr->qcom_acpi_pwrseq_done &&
+	    (ctrlr->qcom_phy_resource != NULL || ctrlr->qcom_phy_is_direct_map))
+		return (false);
 
 	if (ctrlr->qcom_phy_resource != NULL) {
 		*tag = ctrlr->qcom_phy_bus_tag;
@@ -478,10 +720,12 @@ static int
 ufshci_ctrlr_qcom_pre_link_startup(struct ufshci_controller *ctrlr)
 {
 	uint32_t core_clk_ctrl_reg, cycles_in_1us, hw_major;
-	int error;
+	int acpi_bringup_error, error;
 
 	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
 		return (0);
+
+	acpi_bringup_error = ufshci_ctrlr_qcom_prepare_acpi_bringup(ctrlr);
 
 	/*
 	 * QCOM24A5-class platforms expose 300MHz max values for both core_clk
@@ -525,6 +769,8 @@ ufshci_ctrlr_qcom_pre_link_startup(struct ufshci_controller *ctrlr)
 	error = ufshci_ctrlr_qcom_set_clk_40ns_cycles(ctrlr, cycles_in_1us);
 	if (error != 0)
 		return (error);
+	if (acpi_bringup_error != 0)
+		return (0);
 
 	return (ufshci_ctrlr_qcom_qmp_ufs_phy_v6_power_on(ctrlr));
 }

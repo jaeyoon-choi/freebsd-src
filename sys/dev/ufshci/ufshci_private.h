@@ -364,6 +364,17 @@ struct ufshci_controller {
 	struct resource *qcom_phy_resource;
 	bus_addr_t qcom_phy_paddr;
 	bool qcom_phy_is_direct_map;
+	bus_space_tag_t qcom_gcc_bus_tag;
+	bus_space_handle_t qcom_gcc_bus_handle;
+	bus_addr_t qcom_gcc_paddr;
+	bool qcom_gcc_is_direct_map;
+	bus_space_tag_t qcom_tcsr_bus_tag;
+	bus_space_handle_t qcom_tcsr_bus_handle;
+	bus_addr_t qcom_tcsr_paddr;
+	bool qcom_tcsr_is_direct_map;
+	bool qcom_acpi_bringup_enabled;
+	bool qcom_acpi_bringup_ready;
+	bool qcom_acpi_pwrseq_done;
 
 	/* Currently, there is no UFSHCI that supports MSI, MSI-X.  */
 	int msi_count;

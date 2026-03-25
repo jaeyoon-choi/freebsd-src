@@ -24,12 +24,21 @@
 
 #define UFSHCI_QCOM_QMP_PHY_V6_WINDOW_SIZE 0x2000
 #define UFSHCI_QCOM_QMP_PHY_V6_HOST_DELTA 0x4000
+#define UFSHCI_QCOM_X1E80100_GCC_WINDOW_SIZE 0x100000
+#define UFSHCI_QCOM_X1E80100_GCC_PADDR 0x100000
+#define UFSHCI_QCOM_X1E80100_TCSR_WINDOW_SIZE 0x30000
+#define UFSHCI_QCOM_X1E80100_TCSR_PADDR 0x1fc0000
 
 static int ufshci_acpi_probe(device_t);
 static int ufshci_acpi_attach(device_t);
 static int ufshci_acpi_detach(device_t);
 static int ufshci_acpi_suspend(device_t);
 static int ufshci_acpi_resume(device_t);
+static int ufshci_acpi_map_qcom_direct(struct ufshci_controller *ctrlr,
+    const char *what, const char *tunable, bus_addr_t default_paddr,
+    vm_size_t size, bus_space_tag_t *tag, bus_space_handle_t *handle,
+    bus_addr_t *paddr, bool *is_direct_map);
+static void ufshci_acpi_map_qcom_aux_direct(struct ufshci_controller *ctrlr);
 static void ufshci_acpi_map_qcom_phy_direct(
     struct ufshci_controller *ctrlr);
 static void ufshci_acpi_release_resources(struct ufshci_controller *ctrlr);
@@ -120,6 +129,7 @@ ufshci_acpi_allocate_memory(struct ufshci_controller *ctrlr)
 {
 	struct resource *resource;
 	rman_res_t size;
+	int enable_bringup;
 	int rid;
 
 	ctrlr->resource_id = 0;
@@ -134,11 +144,31 @@ ufshci_acpi_allocate_memory(struct ufshci_controller *ctrlr)
 	ctrlr->bus_tag = rman_get_bustag(ctrlr->resource);
 	ctrlr->bus_handle = rman_get_bushandle(ctrlr->resource);
 	ctrlr->regs = (struct ufshci_registers *)ctrlr->bus_handle;
+	ctrlr->qcom_phy_bus_tag = NULL;
+	ctrlr->qcom_phy_bus_handle = 0;
+	ctrlr->qcom_phy_resource_id = -1;
+	ctrlr->qcom_phy_resource = NULL;
+	ctrlr->qcom_phy_paddr = 0;
+	ctrlr->qcom_phy_is_direct_map = false;
+	ctrlr->qcom_gcc_bus_tag = NULL;
+	ctrlr->qcom_gcc_bus_handle = 0;
+	ctrlr->qcom_gcc_paddr = 0;
+	ctrlr->qcom_gcc_is_direct_map = false;
+	ctrlr->qcom_tcsr_bus_tag = NULL;
+	ctrlr->qcom_tcsr_bus_handle = 0;
+	ctrlr->qcom_tcsr_paddr = 0;
+	ctrlr->qcom_tcsr_is_direct_map = false;
+	ctrlr->qcom_acpi_bringup_enabled = false;
+	ctrlr->qcom_acpi_bringup_ready = false;
+	ctrlr->qcom_acpi_pwrseq_done = false;
 
 	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
 		return (0);
 
-	ctrlr->qcom_phy_resource_id = -1;
+	enable_bringup = 0;
+	if (TUNABLE_INT_FETCH("hw.ufshci.qcom.acpi_bringup",
+	    &enable_bringup) && enable_bringup != 0)
+		ctrlr->qcom_acpi_bringup_enabled = true;
 
 	/*
 	 * X1E/SM8550-class firmware may expose the QMP UFS PHY as a
@@ -169,10 +199,74 @@ ufshci_acpi_allocate_memory(struct ufshci_controller *ctrlr)
 		break;
 	}
 
+	ufshci_acpi_map_qcom_aux_direct(ctrlr);
+
 	if (ctrlr->qcom_phy_resource == NULL)
 		ufshci_acpi_map_qcom_phy_direct(ctrlr);
 
 	return (0);
+}
+
+static int
+ufshci_acpi_map_qcom_direct(struct ufshci_controller *ctrlr, const char *what,
+    const char *tunable, bus_addr_t default_paddr, vm_size_t size,
+    bus_space_tag_t *tag, bus_space_handle_t *handle, bus_addr_t *paddr,
+    bool *is_direct_map)
+{
+	uint64_t tunable_paddr;
+	void *va;
+
+	if (*is_direct_map)
+		return (0);
+
+	tunable_paddr = 0;
+	if (TUNABLE_UINT64_FETCH(tunable, &tunable_paddr))
+		*paddr = (bus_addr_t)tunable_paddr;
+	else
+		*paddr = default_paddr;
+
+	va = pmap_mapdev((vm_paddr_t)*paddr, size);
+	if (va == NULL) {
+		ufshci_printf(ctrlr,
+		    "QCOM %s direct map failed at %#jx\n", what,
+		    (uintmax_t)*paddr);
+		*paddr = 0;
+		return (ENXIO);
+	}
+
+	*tag = ctrlr->bus_tag;
+	*handle = (bus_space_handle_t)va;
+	*is_direct_map = true;
+	ufshci_printf(ctrlr, "using QCOM %s direct map at %#jx\n", what,
+	    (uintmax_t)*paddr);
+	return (0);
+}
+
+static void
+ufshci_acpi_map_qcom_aux_direct(struct ufshci_controller *ctrlr)
+{
+	int error;
+
+	if (!ctrlr->qcom_acpi_bringup_enabled)
+		return;
+
+	error = ufshci_acpi_map_qcom_direct(ctrlr, "GCC",
+	    "hw.ufshci.qcom.gcc_paddr", UFSHCI_QCOM_X1E80100_GCC_PADDR,
+	    UFSHCI_QCOM_X1E80100_GCC_WINDOW_SIZE, &ctrlr->qcom_gcc_bus_tag,
+	    &ctrlr->qcom_gcc_bus_handle, &ctrlr->qcom_gcc_paddr,
+	    &ctrlr->qcom_gcc_is_direct_map);
+	if (error != 0)
+		return;
+
+	error = ufshci_acpi_map_qcom_direct(ctrlr, "TCSR",
+	    "hw.ufshci.qcom.tcsr_paddr", UFSHCI_QCOM_X1E80100_TCSR_PADDR,
+	    UFSHCI_QCOM_X1E80100_TCSR_WINDOW_SIZE, &ctrlr->qcom_tcsr_bus_tag,
+	    &ctrlr->qcom_tcsr_bus_handle, &ctrlr->qcom_tcsr_paddr,
+	    &ctrlr->qcom_tcsr_is_direct_map);
+	if (error != 0)
+		return;
+
+	ctrlr->qcom_acpi_bringup_ready = true;
 }
 
 static void
@@ -188,8 +282,9 @@ ufshci_acpi_map_qcom_phy_direct(struct ufshci_controller *ctrlr)
 	if (TUNABLE_UINT64_FETCH("hw.ufshci.qcom.phy_paddr",
 	    &phy_paddr_tunable)) {
 		ctrlr->qcom_phy_paddr = (bus_addr_t)phy_paddr_tunable;
-	} else if (TUNABLE_INT_FETCH("hw.ufshci.qcom.phy_autodirect",
-	    &enable_autodirect) && enable_autodirect != 0) {
+	} else if ((TUNABLE_INT_FETCH("hw.ufshci.qcom.phy_autodirect",
+	    &enable_autodirect) && enable_autodirect != 0) ||
+	    ctrlr->qcom_acpi_bringup_ready) {
 		host_paddr = rman_get_start(ctrlr->resource);
 		if (host_paddr < UFSHCI_QCOM_QMP_PHY_V6_HOST_DELTA) {
 			ufshci_printf(ctrlr,
@@ -204,8 +299,9 @@ ufshci_acpi_map_qcom_phy_direct(struct ufshci_controller *ctrlr)
 	} else {
 		ufshci_printf(ctrlr,
 		    "QCOM QMP UFS PHY direct map disabled; "
-		    "set hw.ufshci.qcom.phy_paddr or "
-		    "hw.ufshci.qcom.phy_autodirect=1 to test it\n");
+		    "set hw.ufshci.qcom.phy_paddr, "
+		    "hw.ufshci.qcom.phy_autodirect=1, or "
+		    "hw.ufshci.qcom.acpi_bringup=1 to test it\n");
 		return;
 	}
 
@@ -246,6 +342,27 @@ ufshci_acpi_release_resources(struct ufshci_controller *ctrlr)
 	ctrlr->qcom_phy_bus_handle = 0;
 	ctrlr->qcom_phy_resource_id = -1;
 	ctrlr->qcom_phy_paddr = 0;
+
+	if (ctrlr->qcom_tcsr_is_direct_map) {
+		pmap_unmapdev((void *)ctrlr->qcom_tcsr_bus_handle,
+		    UFSHCI_QCOM_X1E80100_TCSR_WINDOW_SIZE);
+		ctrlr->qcom_tcsr_is_direct_map = false;
+	}
+	ctrlr->qcom_tcsr_bus_tag = NULL;
+	ctrlr->qcom_tcsr_bus_handle = 0;
+	ctrlr->qcom_tcsr_paddr = 0;
+
+	if (ctrlr->qcom_gcc_is_direct_map) {
+		pmap_unmapdev((void *)ctrlr->qcom_gcc_bus_handle,
+		    UFSHCI_QCOM_X1E80100_GCC_WINDOW_SIZE);
+		ctrlr->qcom_gcc_is_direct_map = false;
+	}
+	ctrlr->qcom_gcc_bus_tag = NULL;
+	ctrlr->qcom_gcc_bus_handle = 0;
+	ctrlr->qcom_gcc_paddr = 0;
+	ctrlr->qcom_acpi_bringup_ready = false;
+	ctrlr->qcom_acpi_bringup_enabled = false;
+	ctrlr->qcom_acpi_pwrseq_done = false;
 
 	if (ctrlr->resource != NULL) {
 		bus_release_resource(ctrlr->dev, SYS_RES_MEMORY,
@@ -376,6 +493,8 @@ ufshci_acpi_suspend(device_t dev)
 
 	/* Currently, PCI-based ufshci only supports POWER_STYPE_STANDBY */
 	error = ufshci_ctrlr_suspend(ctrlr, POWER_STYPE_STANDBY);
+	if (error == 0)
+		ctrlr->qcom_acpi_pwrseq_done = false;
 	return (error);
 }
 
