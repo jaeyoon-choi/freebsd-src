@@ -13,6 +13,146 @@
 #include "ufshci_reg.h"
 
 #define UFSHCI_QCOM_CORE_CLK_300MHZ 300
+#define UFSHCI_QCOM_QMP_PHY_INIT_TIMEOUT_US 10000
+#define UFSHCI_QCOM_QMP_PHY_INIT_POLL_US 200
+#define UFSHCI_QCOM_QMP_PHY_V6_SERDES_OFF 0x0000
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF 0x0400
+#define UFSHCI_QCOM_QMP_PHY_V6_TX_OFF 0x1000
+#define UFSHCI_QCOM_QMP_PHY_V6_RX_OFF 0x1200
+#define UFSHCI_QCOM_QMP_PHY_V6_TX2_OFF 0x1800
+#define UFSHCI_QCOM_QMP_PHY_V6_RX2_OFF 0x1a00
+
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_POWER_DOWN_CONTROL 0x104
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_SW_RESET 0x120
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_PHY_START 0x124
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_PLL_CNTL 0x12c
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_TX_HSGEAR_CAPABILITY 0x0b8
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_RX_HSGEAR_CAPABILITY 0x0bc
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_READY_STATUS 0x1a8
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_RX_SIGDET_CTRL2 0x1ac
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_TX_LARGE_AMP_DRV_LVL 0x1f0
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_TX_MID_TERM_CTRL1 0x1f4
+#define UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_MULTI_LANE_CTRL1 0x1fc
+
+#define UFSHCI_QCOM_QSERDES_V6_COM_LOCK_CMP_EN 0x028
+#define UFSHCI_QCOM_QSERDES_V6_COM_LOCK_CMP1_MODE0 0x06c
+#define UFSHCI_QCOM_QSERDES_V6_COM_LOCK_CMP2_MODE0 0x070
+#define UFSHCI_QCOM_QSERDES_V6_COM_CP_CTRL_MODE0 0x074
+#define UFSHCI_QCOM_QSERDES_V6_COM_CP_CTRL_MODE1 0x078
+#define UFSHCI_QCOM_QSERDES_V6_COM_LOCK_CMP1_MODE1 0x07c
+#define UFSHCI_QCOM_QSERDES_V6_COM_LOCK_CMP2_MODE1 0x080
+#define UFSHCI_QCOM_QSERDES_V6_COM_PLL_RCTRL_MODE0 0x084
+#define UFSHCI_QCOM_QSERDES_V6_COM_PLL_RCTRL_MODE1 0x08c
+#define UFSHCI_QCOM_QSERDES_V6_COM_PLL_CCTRL_MODE0 0x094
+#define UFSHCI_QCOM_QSERDES_V6_COM_PLL_CCTRL_MODE1 0x09c
+#define UFSHCI_QCOM_QSERDES_V6_COM_SYSCLK_EN_SEL 0x110
+#define UFSHCI_QCOM_QSERDES_V6_COM_HSCLK_SEL_1 0x158
+#define UFSHCI_QCOM_QSERDES_V6_COM_HSCLK_HS_SWITCH_SEL_1 0x15c
+#define UFSHCI_QCOM_QSERDES_V6_COM_CMN_CONFIG_1 0x174
+#define UFSHCI_QCOM_QSERDES_V6_COM_DEC_START_MODE0 0x17c
+#define UFSHCI_QCOM_QSERDES_V6_COM_DEC_START_MODE1 0x180
+#define UFSHCI_QCOM_QSERDES_V6_COM_VCO_TUNE_MAP 0x1c8
+#define UFSHCI_QCOM_QSERDES_V6_COM_VCO_TUNE_INITVAL2 0x1d0
+#define UFSHCI_QCOM_QSERDES_V6_COM_PLL_IVCO 0x1f4
+
+#define UFSHCI_QCOM_QSERDES_UFS_V6_TX_RES_CODE_LANE_OFFSET_TX 0x03c
+#define UFSHCI_QCOM_QSERDES_UFS_V6_TX_LANE_MODE_1 0x084
+#define UFSHCI_QCOM_QSERDES_UFS_V6_TX_FR_DCC_CTRL 0x0ec
+
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_UCDR_FO_GAIN_RATE2 0x0d4
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_VGA_CAL_MAN_VAL 0x178
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE_0_1_B0 0x208
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE_0_1_B1 0x20c
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE_0_1_B3 0x214
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE_0_1_B6 0x220
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE2_B3 0x234
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE2_B6 0x240
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE3_B3 0x25c
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE3_B4 0x260
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE3_B5 0x264
+#define UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE3_B8 0x270
+
+#define UFSHCI_QCOM_QMP_PHY_SW_RESET (1U << 0)
+#define UFSHCI_QCOM_QMP_PHY_SW_PWRDN (1U << 0)
+#define UFSHCI_QCOM_QMP_PHY_SERDES_START (1U << 0)
+#define UFSHCI_QCOM_QMP_PHY_PCS_READY (1U << 0)
+
+struct ufshci_qcom_qmp_reg_val {
+	bus_size_t reg;
+	uint32_t val;
+};
+
+static const struct ufshci_qcom_qmp_reg_val ufshci_qcom_sm8550_ufsphy_serdes[] = {
+	{ UFSHCI_QCOM_QSERDES_V6_COM_SYSCLK_EN_SEL, 0xd9 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_CMN_CONFIG_1, 0x16 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_HSCLK_SEL_1, 0x11 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_HSCLK_HS_SWITCH_SEL_1, 0x00 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_LOCK_CMP_EN, 0x01 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_VCO_TUNE_INITVAL2, 0x00 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_DEC_START_MODE0, 0x41 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_PLL_RCTRL_MODE0, 0x18 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_PLL_CCTRL_MODE0, 0x14 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_LOCK_CMP1_MODE0, 0x7f },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_LOCK_CMP2_MODE0, 0x06 },
+};
+
+static const struct ufshci_qcom_qmp_reg_val
+    ufshci_qcom_sm8550_ufsphy_hs_b_serdes[] = {
+	{ UFSHCI_QCOM_QSERDES_V6_COM_VCO_TUNE_MAP, 0x44 },
+};
+
+static const struct ufshci_qcom_qmp_reg_val
+    ufshci_qcom_sm8550_ufsphy_g4_serdes[] = {
+	{ UFSHCI_QCOM_QSERDES_V6_COM_VCO_TUNE_MAP, 0x04 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_PLL_IVCO, 0x0f },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_CP_CTRL_MODE0, 0x0a },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_DEC_START_MODE1, 0x4c },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_CP_CTRL_MODE1, 0x0a },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_PLL_RCTRL_MODE1, 0x18 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_PLL_CCTRL_MODE1, 0x14 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_LOCK_CMP1_MODE1, 0x99 },
+	{ UFSHCI_QCOM_QSERDES_V6_COM_LOCK_CMP2_MODE1, 0x07 },
+};
+
+static const struct ufshci_qcom_qmp_reg_val ufshci_qcom_sm8550_ufsphy_tx[] = {
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_TX_LANE_MODE_1, 0x05 },
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_TX_RES_CODE_LANE_OFFSET_TX, 0x07 },
+};
+
+static const struct ufshci_qcom_qmp_reg_val ufshci_qcom_sm8550_ufsphy_g4_tx[] = {
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_TX_FR_DCC_CTRL, 0x4c },
+};
+
+static const struct ufshci_qcom_qmp_reg_val ufshci_qcom_sm8550_ufsphy_rx[] = {
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_UCDR_FO_GAIN_RATE2, 0x0c },
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE_0_1_B0, 0xc2 },
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE_0_1_B1, 0xc2 },
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE_0_1_B3, 0x1a },
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE_0_1_B6, 0x60 },
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE2_B3, 0x9e },
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE2_B6, 0x60 },
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE3_B3, 0x9e },
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE3_B4, 0x0e },
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE3_B5, 0x36 },
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_MODE_RATE3_B8, 0x02 },
+};
+
+static const struct ufshci_qcom_qmp_reg_val ufshci_qcom_sm8550_ufsphy_g4_rx[] = {
+	{ UFSHCI_QCOM_QSERDES_UFS_V6_RX_VGA_CAL_MAN_VAL, 0x0e },
+};
+
+static const struct ufshci_qcom_qmp_reg_val ufshci_qcom_sm8550_ufsphy_pcs[] = {
+	{ UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_RX_SIGDET_CTRL2, 0x69 },
+	{ UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_TX_LARGE_AMP_DRV_LVL, 0x0f },
+	{ UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_TX_MID_TERM_CTRL1, 0x43 },
+	{ UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_MULTI_LANE_CTRL1, 0x02 },
+};
+
+static const struct ufshci_qcom_qmp_reg_val ufshci_qcom_sm8550_ufsphy_g4_pcs[] = {
+	{ UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_PLL_CNTL, 0x2b },
+	{ UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_TX_HSGEAR_CAPABILITY, 0x04 },
+	{ UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_RX_HSGEAR_CAPABILITY, 0x04 },
+};
 
 static void
 ufshci_ctrlr_fail(struct ufshci_controller *ctrlr)
@@ -32,6 +172,220 @@ ufshci_ctrlr_qcom_get_hw_major(struct ufshci_controller *ctrlr)
 	    UFSHCI_QCOM_REG_HW_VERSION);
 
 	return (UFSHCIV(UFSHCI_QCOM_HW_VERSION_REG_MAJOR, hw_ver));
+}
+
+static bool
+ufshci_ctrlr_qcom_get_phy_mmio(struct ufshci_controller *ctrlr,
+    bus_space_tag_t *tag, bus_space_handle_t *handle, bus_size_t *base_offset)
+{
+	int mmio_offset;
+
+	if (ctrlr->qcom_phy_resource != NULL) {
+		*tag = ctrlr->qcom_phy_bus_tag;
+		*handle = ctrlr->qcom_phy_bus_handle;
+		*base_offset = 0;
+		return (true);
+	}
+
+	mmio_offset = 0;
+	if (!TUNABLE_INT_FETCH("hw.ufshci.qcom.phy_mmio_offset",
+	    &mmio_offset) || mmio_offset < 0)
+		return (false);
+
+	*tag = ctrlr->bus_tag;
+	*handle = ctrlr->bus_handle;
+	*base_offset = (bus_size_t)mmio_offset;
+	return (true);
+}
+
+static bool
+ufshci_ctrlr_qcom_has_phy_mmio(struct ufshci_controller *ctrlr)
+{
+	bus_space_tag_t tag;
+	bus_space_handle_t handle;
+	bus_size_t base_offset;
+
+	return (ufshci_ctrlr_qcom_get_phy_mmio(ctrlr, &tag, &handle,
+	    &base_offset));
+}
+
+static uint32_t
+ufshci_ctrlr_qcom_phy_read_4(struct ufshci_controller *ctrlr, bus_size_t reg)
+{
+	bus_space_tag_t tag;
+	bus_space_handle_t handle;
+	bus_size_t base_offset;
+	bool found;
+
+	found = ufshci_ctrlr_qcom_get_phy_mmio(ctrlr, &tag, &handle,
+	    &base_offset);
+	KASSERT(found, ("QCOM PHY MMIO is not mapped"));
+	if (!found)
+		return (0);
+	return (bus_space_read_4(tag, handle, base_offset + reg));
+}
+
+static void
+ufshci_ctrlr_qcom_phy_write_4(struct ufshci_controller *ctrlr, bus_size_t reg,
+    uint32_t val)
+{
+	bus_space_tag_t tag;
+	bus_space_handle_t handle;
+	bus_size_t base_offset;
+	bool found;
+
+	found = ufshci_ctrlr_qcom_get_phy_mmio(ctrlr, &tag, &handle,
+	    &base_offset);
+	KASSERT(found, ("QCOM PHY MMIO is not mapped"));
+	if (!found)
+		return;
+	bus_space_write_4(tag, handle, base_offset + reg, val);
+}
+
+static void
+ufshci_ctrlr_qcom_phy_setbits(struct ufshci_controller *ctrlr, bus_size_t reg,
+    uint32_t mask)
+{
+	uint32_t val;
+
+	val = ufshci_ctrlr_qcom_phy_read_4(ctrlr, reg);
+	val |= mask;
+	ufshci_ctrlr_qcom_phy_write_4(ctrlr, reg, val);
+	(void)ufshci_ctrlr_qcom_phy_read_4(ctrlr, reg);
+}
+
+static void
+ufshci_ctrlr_qcom_phy_clrbits(struct ufshci_controller *ctrlr, bus_size_t reg,
+    uint32_t mask)
+{
+	uint32_t val;
+
+	val = ufshci_ctrlr_qcom_phy_read_4(ctrlr, reg);
+	val &= ~mask;
+	ufshci_ctrlr_qcom_phy_write_4(ctrlr, reg, val);
+	(void)ufshci_ctrlr_qcom_phy_read_4(ctrlr, reg);
+}
+
+static void
+ufshci_ctrlr_qcom_phy_write_tbl(struct ufshci_controller *ctrlr,
+    bus_size_t block_offset, const struct ufshci_qcom_qmp_reg_val *tbl,
+    size_t num_entries)
+{
+	size_t i;
+
+	for (i = 0; i < num_entries; i++)
+		ufshci_ctrlr_qcom_phy_write_4(ctrlr, block_offset + tbl[i].reg,
+		    tbl[i].val);
+}
+
+static int
+ufshci_ctrlr_qcom_qmp_ufs_phy_v6_power_on(struct ufshci_controller *ctrlr)
+{
+	uint32_t ready;
+	int timeout_us;
+
+	if (!ufshci_ctrlr_qcom_has_phy_mmio(ctrlr)) {
+		ufshci_printf(ctrlr,
+		    "QCOM QMP UFS PHY MMIO unavailable, skipping direct PHY bring-up\n");
+		return (0);
+	}
+
+	/*
+	 * Minimal SM8550/X1E80100 QMP UFS PHY v6 bring-up for the current
+	 * FreeBSD HS-B / G4 prototype path.
+	 */
+	ufshci_ctrlr_qcom_phy_clrbits(ctrlr,
+	    UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF +
+	    UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_PHY_START,
+	    UFSHCI_QCOM_QMP_PHY_SERDES_START);
+	ufshci_ctrlr_qcom_phy_setbits(ctrlr,
+	    UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF +
+	    UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_POWER_DOWN_CONTROL,
+	    UFSHCI_QCOM_QMP_PHY_SW_PWRDN);
+	ufshci_ctrlr_qcom_phy_setbits(ctrlr,
+	    UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF +
+	    UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_SW_RESET,
+	    UFSHCI_QCOM_QMP_PHY_SW_RESET);
+
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_SERDES_OFF,
+	    ufshci_qcom_sm8550_ufsphy_serdes,
+	    nitems(ufshci_qcom_sm8550_ufsphy_serdes));
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_SERDES_OFF,
+	    ufshci_qcom_sm8550_ufsphy_g4_serdes,
+	    nitems(ufshci_qcom_sm8550_ufsphy_g4_serdes));
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_SERDES_OFF,
+	    ufshci_qcom_sm8550_ufsphy_hs_b_serdes,
+	    nitems(ufshci_qcom_sm8550_ufsphy_hs_b_serdes));
+
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_TX_OFF,
+	    ufshci_qcom_sm8550_ufsphy_tx,
+	    nitems(ufshci_qcom_sm8550_ufsphy_tx));
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_TX2_OFF,
+	    ufshci_qcom_sm8550_ufsphy_tx,
+	    nitems(ufshci_qcom_sm8550_ufsphy_tx));
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_TX_OFF,
+	    ufshci_qcom_sm8550_ufsphy_g4_tx,
+	    nitems(ufshci_qcom_sm8550_ufsphy_g4_tx));
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_TX2_OFF,
+	    ufshci_qcom_sm8550_ufsphy_g4_tx,
+	    nitems(ufshci_qcom_sm8550_ufsphy_g4_tx));
+
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_RX_OFF,
+	    ufshci_qcom_sm8550_ufsphy_rx,
+	    nitems(ufshci_qcom_sm8550_ufsphy_rx));
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_RX2_OFF,
+	    ufshci_qcom_sm8550_ufsphy_rx,
+	    nitems(ufshci_qcom_sm8550_ufsphy_rx));
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_RX_OFF,
+	    ufshci_qcom_sm8550_ufsphy_g4_rx,
+	    nitems(ufshci_qcom_sm8550_ufsphy_g4_rx));
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_RX2_OFF,
+	    ufshci_qcom_sm8550_ufsphy_g4_rx,
+	    nitems(ufshci_qcom_sm8550_ufsphy_g4_rx));
+
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF,
+	    ufshci_qcom_sm8550_ufsphy_pcs,
+	    nitems(ufshci_qcom_sm8550_ufsphy_pcs));
+	ufshci_ctrlr_qcom_phy_write_tbl(ctrlr, UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF,
+	    ufshci_qcom_sm8550_ufsphy_g4_pcs,
+	    nitems(ufshci_qcom_sm8550_ufsphy_g4_pcs));
+
+	ufshci_ctrlr_qcom_phy_clrbits(ctrlr,
+	    UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF +
+	    UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_SW_RESET,
+	    UFSHCI_QCOM_QMP_PHY_SW_RESET);
+	ufshci_ctrlr_qcom_phy_setbits(ctrlr,
+	    UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF +
+	    UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_PHY_START,
+	    UFSHCI_QCOM_QMP_PHY_SERDES_START);
+
+	for (timeout_us = 0; timeout_us < UFSHCI_QCOM_QMP_PHY_INIT_TIMEOUT_US;
+	    timeout_us += UFSHCI_QCOM_QMP_PHY_INIT_POLL_US) {
+		ready = ufshci_ctrlr_qcom_phy_read_4(ctrlr,
+		    UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF +
+		    UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_READY_STATUS);
+		if ((ready & UFSHCI_QCOM_QMP_PHY_PCS_READY) != 0) {
+			ufshci_printf(ctrlr, "QCOM QMP UFS PHY v6 ready\n");
+			return (0);
+		}
+		DELAY(UFSHCI_QCOM_QMP_PHY_INIT_POLL_US);
+	}
+
+	ufshci_printf(ctrlr,
+	    "QCOM QMP UFS PHY v6 init timed out: ready=%#x start=%#x sw_reset=%#x pwrdn=%#x\n",
+	    ufshci_ctrlr_qcom_phy_read_4(ctrlr,
+		UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF +
+		UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_READY_STATUS),
+	    ufshci_ctrlr_qcom_phy_read_4(ctrlr,
+		UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF +
+		UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_PHY_START),
+	    ufshci_ctrlr_qcom_phy_read_4(ctrlr,
+		UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF +
+		UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_SW_RESET),
+	    ufshci_ctrlr_qcom_phy_read_4(ctrlr,
+		UFSHCI_QCOM_QMP_PHY_V6_PCS_OFF +
+		UFSHCI_QCOM_QMP_PHY_V6_PCS_UFS_POWER_DOWN_CONTROL));
+	return (ENXIO);
 }
 
 static void
@@ -116,6 +470,7 @@ static int
 ufshci_ctrlr_qcom_pre_link_startup(struct ufshci_controller *ctrlr)
 {
 	uint32_t core_clk_ctrl_reg, cycles_in_1us, hw_major;
+	int error;
 
 	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
 		return (0);
@@ -159,7 +514,11 @@ ufshci_ctrlr_qcom_pre_link_startup(struct ufshci_controller *ctrlr)
 	    core_clk_ctrl_reg))
 		return (ENXIO);
 
-	return (ufshci_ctrlr_qcom_set_clk_40ns_cycles(ctrlr, cycles_in_1us));
+	error = ufshci_ctrlr_qcom_set_clk_40ns_cycles(ctrlr, cycles_in_1us);
+	if (error != 0)
+		return (error);
+
+	return (ufshci_ctrlr_qcom_qmp_ufs_phy_v6_power_on(ctrlr));
 }
 
 /* Some controllers require a reinit after switching to the max gear. */

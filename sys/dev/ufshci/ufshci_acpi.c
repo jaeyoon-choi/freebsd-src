@@ -21,11 +21,14 @@
 
 #include "ufshci_private.h"
 
+#define UFSHCI_QCOM_QMP_PHY_V6_WINDOW_SIZE 0x2000
+
 static int ufshci_acpi_probe(device_t);
 static int ufshci_acpi_attach(device_t);
 static int ufshci_acpi_detach(device_t);
 static int ufshci_acpi_suspend(device_t);
 static int ufshci_acpi_resume(device_t);
+static void ufshci_acpi_release_resources(struct ufshci_controller *ctrlr);
 
 static device_method_t ufshci_acpi_methods[] = {
 	/* Device interface */
@@ -111,6 +114,10 @@ ufshci_acpi_probe(device_t dev)
 static int
 ufshci_acpi_allocate_memory(struct ufshci_controller *ctrlr)
 {
+	struct resource *resource;
+	rman_res_t size;
+	int rid;
+
 	ctrlr->resource_id = 0;
 	ctrlr->resource = bus_alloc_resource_any(ctrlr->dev, SYS_RES_MEMORY,
 	    &ctrlr->resource_id, RF_ACTIVE);
@@ -124,7 +131,66 @@ ufshci_acpi_allocate_memory(struct ufshci_controller *ctrlr)
 	ctrlr->bus_handle = rman_get_bushandle(ctrlr->resource);
 	ctrlr->regs = (struct ufshci_registers *)ctrlr->bus_handle;
 
+	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
+		return (0);
+
+	/*
+	 * X1E/SM8550-class firmware may expose the QMP UFS PHY as a
+	 * separate memory resource next to the host controller window.
+	 * Probe the remaining memory resources and keep the 0x2000-sized one
+	 * as the PHY window for direct MMIO bring-up.
+	 */
+	for (rid = 1; rid <= 3; rid++) {
+		ctrlr->qcom_phy_resource_id = rid;
+		resource = bus_alloc_resource_any(ctrlr->dev, SYS_RES_MEMORY,
+		    &ctrlr->qcom_phy_resource_id, RF_ACTIVE);
+		if (resource == NULL)
+			continue;
+
+		size = rman_get_size(resource);
+		if (size != UFSHCI_QCOM_QMP_PHY_V6_WINDOW_SIZE) {
+			bus_release_resource(ctrlr->dev, SYS_RES_MEMORY,
+			    ctrlr->qcom_phy_resource_id, resource);
+			continue;
+		}
+
+		ctrlr->qcom_phy_resource = resource;
+		ctrlr->qcom_phy_bus_tag = rman_get_bustag(resource);
+		ctrlr->qcom_phy_bus_handle = rman_get_bushandle(resource);
+		ufshci_printf(ctrlr,
+		    "using QCOM QMP UFS PHY MMIO resource rid %d\n",
+		    ctrlr->qcom_phy_resource_id);
+		break;
+	}
+
 	return (0);
+}
+
+static void
+ufshci_acpi_release_resources(struct ufshci_controller *ctrlr)
+{
+	if (ctrlr->qcom_phy_resource != NULL) {
+		bus_release_resource(ctrlr->dev, SYS_RES_MEMORY,
+		    ctrlr->qcom_phy_resource_id, ctrlr->qcom_phy_resource);
+		ctrlr->qcom_phy_resource = NULL;
+	}
+
+	if (ctrlr->resource != NULL) {
+		bus_release_resource(ctrlr->dev, SYS_RES_MEMORY,
+		    ctrlr->resource_id, ctrlr->resource);
+		ctrlr->resource = NULL;
+	}
+
+	if (ctrlr->tag != NULL) {
+		bus_teardown_intr(ctrlr->dev, ctrlr->res, ctrlr->tag);
+		ctrlr->tag = NULL;
+	}
+
+	if (ctrlr->res != NULL) {
+		bus_release_resource(ctrlr->dev, SYS_RES_IRQ,
+		    rman_get_rid(ctrlr->res), ctrlr->res);
+		ctrlr->res = NULL;
+	}
 }
 
 static int
@@ -200,27 +266,25 @@ ufshci_acpi_attach(device_t dev)
 	if (status != 0)
 		goto bad;
 
-	return (ufshci_attach(dev));
+	status = ufshci_attach(dev);
+	if (status != 0)
+		goto bad;
+
+	return (0);
 bad:
-	if (ctrlr->resource != NULL) {
-		bus_release_resource(dev, SYS_RES_MEMORY, ctrlr->resource_id,
-		    ctrlr->resource);
-	}
-
-	if (ctrlr->tag)
-		bus_teardown_intr(dev, ctrlr->res, ctrlr->tag);
-
-	if (ctrlr->res)
-		bus_release_resource(dev, SYS_RES_IRQ, rman_get_rid(ctrlr->res),
-		    ctrlr->res);
-
+	ufshci_acpi_release_resources(ctrlr);
 	return (status);
 }
 
 static int
 ufshci_acpi_detach(device_t dev)
 {
-	return (ufshci_detach(dev));
+	struct ufshci_controller *ctrlr = device_get_softc(dev);
+	int error;
+
+	error = ufshci_detach(dev);
+	ufshci_acpi_release_resources(ctrlr);
+	return (error);
 }
 
 static int
