@@ -12,13 +12,8 @@
 #include "ufshci_private.h"
 #include "ufshci_reg.h"
 
-#define UFSHCI_VENDOR_SAMSUNG 0x1CE
 #define UFSHCI_VENDOR_SKHYNIX 0x1AD
 #define UFSHCI_VENDOR_WDC	   0x145
-
-#define UFSHCI_QCOM_TX_HSG1_SYNC_LENGTH_VAL 0x4A
-#define UFSHCI_QCOM_TX_DEEMPHASIS_3_5_DB	  0x04
-#define UFSHCI_QCOM_TX_NO_DEEMPHASIS	  0x00
 
 static int
 ufshci_dev_read_descriptor(struct ufshci_controller *ctrlr,
@@ -94,10 +89,6 @@ ufshci_dev_fixup_qcom_quirks(struct ufshci_controller *ctrlr)
 		break;
 	case UFSHCI_VENDOR_WDC:
 		dev->dev_quirks |= UFSHCI_DEV_QUIRK_HOST_PA_TACTIVATE;
-		break;
-	case UFSHCI_VENDOR_SAMSUNG:
-		dev->dev_quirks |= UFSHCI_DEV_QUIRK_PA_TX_HSG1_SYNC_LENGTH |
-		    UFSHCI_DEV_QUIRK_PA_TX_DEEMPHASIS_TUNING;
 		break;
 	default:
 		break;
@@ -343,13 +334,6 @@ ufshci_dev_qcom_quirk_host_pa_tactivate(struct ufshci_controller *ctrlr)
 }
 
 static int
-ufshci_dev_qcom_override_pa_tx_hsg1_sync_len(struct ufshci_controller *ctrlr)
-{
-	return (ufshci_uic_send_dme_peer_set(ctrlr, PA_TX_HSG1_SYNC_LENGTH,
-	    UFSHCI_QCOM_TX_HSG1_SYNC_LENGTH_VAL));
-}
-
-static int
 ufshci_dev_qcom_apply_dev_quirks(struct ufshci_controller *ctrlr)
 {
 	struct ufshci_device *dev = &ctrlr->ufs_dev;
@@ -363,34 +347,6 @@ ufshci_dev_qcom_apply_dev_quirks(struct ufshci_controller *ctrlr)
 
 	if (dev->dev_quirks & UFSHCI_DEV_QUIRK_HOST_PA_TACTIVATE) {
 		error = ufshci_dev_qcom_quirk_host_pa_tactivate(ctrlr);
-		if (error != 0)
-			return (error);
-	}
-
-	if (dev->dev_quirks & UFSHCI_DEV_QUIRK_PA_TX_HSG1_SYNC_LENGTH) {
-		error = ufshci_dev_qcom_override_pa_tx_hsg1_sync_len(ctrlr);
-		if (error != 0)
-			return (error);
-	}
-
-	return (0);
-}
-
-static int
-ufshci_dev_qcom_set_tx_hs_equalizer(struct ufshci_controller *ctrlr,
-    uint32_t gear, uint32_t tx_lanes)
-{
-	uint32_t equalizer_val;
-	uint32_t lane;
-	int error;
-
-	equalizer_val = gear == 5 ? UFSHCI_QCOM_TX_DEEMPHASIS_3_5_DB :
-	    UFSHCI_QCOM_TX_NO_DEEMPHASIS;
-
-	for (lane = 0; lane < tx_lanes; lane++) {
-		error = ufshci_uic_send_dme_set_attr(ctrlr,
-		    UFSHCI_UIC_ARG_MIB_SEL(TX_HS_EQUALIZER, lane),
-		    equalizer_val);
 		if (error != 0)
 			return (error);
 	}
@@ -450,10 +406,58 @@ ufshci_dev_qcom_ref_clk_ctrl(struct ufshci_controller *ctrlr, bool enable)
 	return (0);
 }
 
+static uint32_t
+ufshci_dev_qcom_get_loader_cap(struct ufshci_controller *ctrlr,
+    const char *name, uint32_t min_value, uint32_t max_value)
+{
+	int value;
+
+	if (!TUNABLE_INT_FETCH(name, &value))
+		return (0);
+
+	if (value < (int)min_value || value > (int)max_value) {
+		ufshci_printf(ctrlr,
+		    "ignoring %s=%d outside supported range [%u, %u]\n",
+		    name, value, min_value, max_value);
+		return (0);
+	}
+
+	return ((uint32_t)value);
+}
+
+static void
+ufshci_dev_qcom_limit_lanes(struct ufshci_controller *ctrlr,
+    uint32_t *connected_tx_lanes, uint32_t *connected_rx_lanes)
+{
+	uint32_t loader_max_lanes;
+	uint32_t orig_tx_lanes, orig_rx_lanes;
+
+	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
+		return;
+
+	loader_max_lanes = ufshci_dev_qcom_get_loader_cap(ctrlr,
+	    "hw.ufshci.qcom.max_lanes", 1, 2);
+	if (loader_max_lanes == 0)
+		return;
+
+	orig_tx_lanes = *connected_tx_lanes;
+	orig_rx_lanes = *connected_rx_lanes;
+	*connected_tx_lanes = min(*connected_tx_lanes, loader_max_lanes);
+	*connected_rx_lanes = min(*connected_rx_lanes, loader_max_lanes);
+	if (orig_tx_lanes != *connected_tx_lanes ||
+	    orig_rx_lanes != *connected_rx_lanes) {
+		ufshci_printf(ctrlr,
+		    "limiting connected lanes from tx=%u rx=%u to tx=%u rx=%u via %s\n",
+		    orig_tx_lanes, orig_rx_lanes, *connected_tx_lanes,
+		    *connected_rx_lanes, "hw.ufshci.qcom.max_lanes");
+	}
+}
+
 static int
 ufshci_dev_qcom_limit_hs_gear(struct ufshci_controller *ctrlr)
 {
-	uint32_t param0, host_max_hs_gear;
+	static const uint32_t qcom_forced_max_hs_gear = 4;
+	uint32_t loader_max_hs_gear, param0, host_max_hs_gear;
 
 	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
 		return (0);
@@ -476,6 +480,23 @@ ufshci_dev_qcom_limit_hs_gear(struct ufshci_controller *ctrlr)
 	} else {
 		ufshci_printf(ctrlr, "QCOM vendor max HS gear: %u\n",
 		    host_max_hs_gear);
+	}
+
+	if (ctrlr->hs_gear > qcom_forced_max_hs_gear) {
+		ufshci_printf(ctrlr,
+		    "forcing HS gear from %u to %u for QCOM bring-up\n",
+		    ctrlr->hs_gear, qcom_forced_max_hs_gear);
+		ctrlr->hs_gear = qcom_forced_max_hs_gear;
+	}
+
+	loader_max_hs_gear = ufshci_dev_qcom_get_loader_cap(ctrlr,
+	    "hw.ufshci.qcom.max_hs_gear", 1, 5);
+	if (loader_max_hs_gear != 0 && ctrlr->hs_gear > loader_max_hs_gear) {
+		ufshci_printf(ctrlr,
+		    "limiting HS gear from %u to loader cap %u via %s\n",
+		    ctrlr->hs_gear, loader_max_hs_gear,
+		    "hw.ufshci.qcom.max_hs_gear");
+		ctrlr->hs_gear = loader_max_hs_gear;
 	}
 
 	return (0);
@@ -522,6 +543,8 @@ ufshci_dev_get_max_pwr_mode(struct ufshci_controller *ctrlr,
 		    "asymmetric connected lanes. tx=%u rx=%u, using the minimum\n",
 		    *connected_tx_lanes, *connected_rx_lanes);
 	}
+	ufshci_dev_qcom_limit_lanes(ctrlr, connected_tx_lanes,
+	    connected_rx_lanes);
 
 	if (ufshci_uic_send_dme_get(ctrlr, PA_MaxRxHSGear,
 	    &ctrlr->max_rx_hs_gear))
@@ -667,13 +690,6 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 		    PA_NO_ADAPT;
 		if (ufshci_uic_send_dme_set(ctrlr, PA_TxHsAdaptType,
 		    adapt_type))
-			return (ENXIO);
-	}
-
-	if (ctrlr->ufs_dev.dev_quirks &
-	    UFSHCI_DEV_QUIRK_PA_TX_DEEMPHASIS_TUNING) {
-		if (ufshci_dev_qcom_set_tx_hs_equalizer(ctrlr, ctrlr->hs_gear,
-		    ctrlr->tx_lanes) != 0)
 			return (ENXIO);
 	}
 

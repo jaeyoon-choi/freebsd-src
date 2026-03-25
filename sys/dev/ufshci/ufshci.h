@@ -51,8 +51,6 @@
 #define PA_LocalTxLCCEnable		 0x155E
 #define PA_TxHsAdaptType		 0x15D4
 #define PA_PWRMode			 0x1571
-#define PA_TX_HSG1_SYNC_LENGTH		 0x1552
-#define TX_HS_EQUALIZER			 0x0037
 
 #define PA_REFRESH_ADAPT		 0x00
 #define PA_INITIAL_ADAPT		 0x01

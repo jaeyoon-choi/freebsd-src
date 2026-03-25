@@ -277,8 +277,6 @@ struct ufshci_device {
 	uint32_t dev_quirks;
 #define UFSHCI_DEV_QUIRK_HOST_PA_SAVECONFIGTIME (1 << 0)
 #define UFSHCI_DEV_QUIRK_HOST_PA_TACTIVATE	   (1 << 1)
-#define UFSHCI_DEV_QUIRK_PA_TX_HSG1_SYNC_LENGTH  (1 << 2)
-#define UFSHCI_DEV_QUIRK_PA_TX_DEEMPHASIS_TUNING (1 << 3)
 
 	struct ufshci_device_descriptor dev_desc;
 	struct ufshci_geometry_descriptor geo_desc;
@@ -561,8 +559,6 @@ int ufshci_uic_send_dme_get(struct ufshci_controller *ctrlr, uint16_t attribute,
     uint32_t *return_value);
 int ufshci_uic_send_dme_set(struct ufshci_controller *ctrlr, uint16_t attribute,
     uint32_t value);
-int ufshci_uic_send_dme_set_attr(struct ufshci_controller *ctrlr,
-    uint32_t attribute_sel, uint32_t value);
 int ufshci_uic_send_dme_peer_get(struct ufshci_controller *ctrlr,
     uint16_t attribute, uint32_t *return_value);
 int ufshci_uic_send_dme_peer_set(struct ufshci_controller *ctrlr,
