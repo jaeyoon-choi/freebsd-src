@@ -649,19 +649,27 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 	 */
 	const uint32_t fast_mode = 1;
 	const uint32_t rx_bit_shift = 4;
+	int hs_only;
 	uint32_t connected_tx_lanes, connected_rx_lanes;
 	uint32_t hs_series;
 	uint32_t peer_granularity;
 	int error;
 
+	hs_only = 0;
 	if ((ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ) &&
 	    !ufshci_ctrlr_qcom_has_phy_mmio(ctrlr)) {
-		ufshci_printf(ctrlr,
-		    "QCOM PHY MMIO unavailable, keeping initial UIC power mode\n");
-		ctrlr->hs_gear = 0;
-		ctrlr->tx_lanes = 0;
-		ctrlr->rx_lanes = 0;
-		return (0);
+		if (TUNABLE_INT_FETCH("hw.ufshci.qcom.hs_only", &hs_only) &&
+		    hs_only != 0) {
+			ufshci_printf(ctrlr,
+			    "QCOM HS-only mode: attempting HS negotiation without direct PHY bring-up\n");
+		} else {
+			ufshci_printf(ctrlr,
+			    "QCOM PHY MMIO unavailable, keeping initial UIC power mode\n");
+			ctrlr->hs_gear = 0;
+			ctrlr->tx_lanes = 0;
+			ctrlr->rx_lanes = 0;
+			return (0);
+		}
 	}
 
 	error = ufshci_dev_get_max_pwr_mode(ctrlr, &hs_series,

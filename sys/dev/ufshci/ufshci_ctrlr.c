@@ -720,7 +720,7 @@ static int
 ufshci_ctrlr_qcom_pre_link_startup(struct ufshci_controller *ctrlr)
 {
 	uint32_t core_clk_ctrl_reg, cycles_in_1us, hw_major;
-	int acpi_bringup_error, error;
+	int acpi_bringup_error, error, hs_only;
 
 	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
 		return (0);
@@ -771,6 +771,13 @@ ufshci_ctrlr_qcom_pre_link_startup(struct ufshci_controller *ctrlr)
 		return (error);
 	if (acpi_bringup_error != 0)
 		return (0);
+	hs_only = 0;
+	if (TUNABLE_INT_FETCH("hw.ufshci.qcom.hs_only", &hs_only) &&
+	    hs_only != 0) {
+		ufshci_printf(ctrlr,
+		    "QCOM HS-only mode: skipping direct PHY bring-up\n");
+		return (0);
+	}
 
 	return (ufshci_ctrlr_qcom_qmp_ufs_phy_v6_power_on(ctrlr));
 }
