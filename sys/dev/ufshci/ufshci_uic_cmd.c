@@ -253,6 +253,21 @@ ufshci_uic_send_dme_set(struct ufshci_controller *ctrlr, uint16_t attribute,
 }
 
 int
+ufshci_uic_send_dme_set_attr(struct ufshci_controller *ctrlr,
+    uint32_t attribute_sel, uint32_t value)
+{
+	struct ufshci_uic_cmd uic_cmd;
+
+	uic_cmd.opcode = UFSHCI_DME_SET;
+	uic_cmd.argument1 = attribute_sel;
+	/* This drvier always sets only volatile values. */
+	uic_cmd.argument2 = UFSHCI_ATTR_SET_TYPE_NORMAL << 16;
+	uic_cmd.argument3 = value;
+
+	return (ufshci_uic_send_cmd(ctrlr, &uic_cmd, NULL));
+}
+
+int
 ufshci_uic_send_dme_peer_get(struct ufshci_controller *ctrlr,
     uint16_t attribute, uint32_t *return_value)
 {

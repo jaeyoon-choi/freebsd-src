@@ -51,6 +51,8 @@
 #define PA_LocalTxLCCEnable		 0x155E
 #define PA_TxHsAdaptType		 0x15D4
 #define PA_PWRMode			 0x1571
+#define PA_TX_HSG1_SYNC_LENGTH		 0x1552
+#define TX_HS_EQUALIZER			 0x0037
 
 #define PA_REFRESH_ADAPT		 0x00
 #define PA_INITIAL_ADAPT		 0x01
@@ -63,6 +65,7 @@
  * Qualcomm vendor-specific UniPro attributes used on recent QCOM UFS
  * controllers to program core clock timing before link startup.
  */
+#define PA_VS_CONFIG_REG1			 0x9000
 #define DME_VS_CORE_CLK_CTRL			 0xD002
 #define DME_VS_CORE_CLK_CTRL_REG_CLK_1US_CYCLES_SHIFT	 0
 #define DME_VS_CORE_CLK_CTRL_REG_CLK_1US_CYCLES_MASK	 0xFF
@@ -120,6 +123,9 @@ enum ufshci_uic_cmd_attr_set_type {
 	UFSHCI_ATTR_SET_TYPE_NORMAL = 0, /* volatile value */
 	UFSHCI_ATTR_SET_TYPE_STATIC = 1, /* non-volatile reset value */
 };
+
+#define UFSHCI_UIC_ARG_MIB_SEL(attr, sel) \
+	((((attr) & 0xFFFF) << 16) | ((sel) & 0xFFFF))
 
 struct ufshci_uic_cmd {
 	uint8_t opcode;

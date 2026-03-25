@@ -12,6 +12,14 @@
 #include "ufshci_private.h"
 #include "ufshci_reg.h"
 
+#define UFSHCI_VENDOR_SAMSUNG 0x1CE
+#define UFSHCI_VENDOR_SKHYNIX 0x1AD
+#define UFSHCI_VENDOR_WDC	   0x145
+
+#define UFSHCI_QCOM_TX_HSG1_SYNC_LENGTH_VAL 0x4A
+#define UFSHCI_QCOM_TX_DEEMPHASIS_3_5_DB	  0x04
+#define UFSHCI_QCOM_TX_NO_DEEMPHASIS	  0x00
+
 static int
 ufshci_dev_read_descriptor(struct ufshci_controller *ctrlr,
     enum ufshci_descriptor_type desc_type, uint8_t index, uint8_t selector,
@@ -66,6 +74,40 @@ ufshci_dev_read_unit_descriptor(struct ufshci_controller *ctrlr, uint8_t lun,
 {
 	return (ufshci_dev_read_descriptor(ctrlr, UFSHCI_DESC_TYPE_UNIT, lun, 0,
 	    desc, sizeof(struct ufshci_unit_descriptor)));
+}
+
+static void
+ufshci_dev_fixup_qcom_quirks(struct ufshci_controller *ctrlr)
+{
+	struct ufshci_device *dev = &ctrlr->ufs_dev;
+	uint16_t manufacturer_id;
+
+	dev->dev_quirks = 0;
+	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
+		return;
+
+	manufacturer_id = be16toh(dev->dev_desc.wManufacturerID);
+
+	switch (manufacturer_id) {
+	case UFSHCI_VENDOR_SKHYNIX:
+		dev->dev_quirks |= UFSHCI_DEV_QUIRK_HOST_PA_SAVECONFIGTIME;
+		break;
+	case UFSHCI_VENDOR_WDC:
+		dev->dev_quirks |= UFSHCI_DEV_QUIRK_HOST_PA_TACTIVATE;
+		break;
+	case UFSHCI_VENDOR_SAMSUNG:
+		dev->dev_quirks |= UFSHCI_DEV_QUIRK_PA_TX_HSG1_SYNC_LENGTH |
+		    UFSHCI_DEV_QUIRK_PA_TX_DEEMPHASIS_TUNING;
+		break;
+	default:
+		break;
+	}
+
+	if (dev->dev_quirks != 0) {
+		ufshci_printf(ctrlr,
+		    "applying QCOM UFS device quirks 0x%x for manufacturer 0x%03x\n",
+		    dev->dev_quirks, manufacturer_id);
+	}
 }
 
 static int
@@ -250,6 +292,112 @@ ufshci_dev_reset(struct ufshci_controller *ctrlr)
 	return (ufshci_dev_init(ctrlr));
 }
 
+static int
+ufshci_dev_qcom_quirk_host_pa_saveconfigtime(struct ufshci_controller *ctrlr)
+{
+	uint32_t pa_vs_config_reg1;
+
+	if (ufshci_uic_send_dme_get(ctrlr, PA_VS_CONFIG_REG1,
+	    &pa_vs_config_reg1))
+		return (ENXIO);
+
+	return (ufshci_uic_send_dme_set(ctrlr, PA_VS_CONFIG_REG1,
+	    pa_vs_config_reg1 | (1 << 12)));
+}
+
+static int
+ufshci_dev_qcom_quirk_host_pa_tactivate(struct ufshci_controller *ctrlr)
+{
+	static const uint8_t gran_to_us_table[] = { 1, 4, 8, 16, 32, 100 };
+	uint32_t granularity, peer_granularity;
+	uint32_t pa_tactivate, peer_pa_tactivate;
+	uint32_t pa_tactivate_us, peer_pa_tactivate_us;
+
+	if (ufshci_uic_send_dme_get(ctrlr, PA_Granularity, &granularity))
+		return (ENXIO);
+	if (ufshci_uic_send_dme_peer_get(ctrlr, PA_Granularity,
+	    &peer_granularity))
+		return (ENXIO);
+	if (granularity == 0 || granularity > nitems(gran_to_us_table) ||
+	    peer_granularity == 0 ||
+	    peer_granularity > nitems(gran_to_us_table))
+		return (EINVAL);
+
+	if (ufshci_uic_send_dme_get(ctrlr, PA_TActivate, &pa_tactivate))
+		return (ENXIO);
+	if (ufshci_uic_send_dme_peer_get(ctrlr, PA_TActivate, &peer_pa_tactivate))
+		return (ENXIO);
+
+	pa_tactivate_us = pa_tactivate * gran_to_us_table[granularity - 1];
+	peer_pa_tactivate_us =
+	    peer_pa_tactivate * gran_to_us_table[peer_granularity - 1];
+	if (pa_tactivate_us < peer_pa_tactivate_us)
+		return (0);
+
+	peer_pa_tactivate = pa_tactivate_us /
+	    gran_to_us_table[peer_granularity - 1];
+	peer_pa_tactivate++;
+
+	return (ufshci_uic_send_dme_peer_set(ctrlr, PA_TActivate,
+	    peer_pa_tactivate));
+}
+
+static int
+ufshci_dev_qcom_override_pa_tx_hsg1_sync_len(struct ufshci_controller *ctrlr)
+{
+	return (ufshci_uic_send_dme_peer_set(ctrlr, PA_TX_HSG1_SYNC_LENGTH,
+	    UFSHCI_QCOM_TX_HSG1_SYNC_LENGTH_VAL));
+}
+
+static int
+ufshci_dev_qcom_apply_dev_quirks(struct ufshci_controller *ctrlr)
+{
+	struct ufshci_device *dev = &ctrlr->ufs_dev;
+	int error;
+
+	if (dev->dev_quirks & UFSHCI_DEV_QUIRK_HOST_PA_SAVECONFIGTIME) {
+		error = ufshci_dev_qcom_quirk_host_pa_saveconfigtime(ctrlr);
+		if (error != 0)
+			return (error);
+	}
+
+	if (dev->dev_quirks & UFSHCI_DEV_QUIRK_HOST_PA_TACTIVATE) {
+		error = ufshci_dev_qcom_quirk_host_pa_tactivate(ctrlr);
+		if (error != 0)
+			return (error);
+	}
+
+	if (dev->dev_quirks & UFSHCI_DEV_QUIRK_PA_TX_HSG1_SYNC_LENGTH) {
+		error = ufshci_dev_qcom_override_pa_tx_hsg1_sync_len(ctrlr);
+		if (error != 0)
+			return (error);
+	}
+
+	return (0);
+}
+
+static int
+ufshci_dev_qcom_set_tx_hs_equalizer(struct ufshci_controller *ctrlr,
+    uint32_t gear, uint32_t tx_lanes)
+{
+	uint32_t equalizer_val;
+	uint32_t lane;
+	int error;
+
+	equalizer_val = gear == 5 ? UFSHCI_QCOM_TX_DEEMPHASIS_3_5_DB :
+	    UFSHCI_QCOM_TX_NO_DEEMPHASIS;
+
+	for (lane = 0; lane < tx_lanes; lane++) {
+		error = ufshci_uic_send_dme_set_attr(ctrlr,
+		    UFSHCI_UIC_ARG_MIB_SEL(TX_HS_EQUALIZER, lane),
+		    equalizer_val);
+		if (error != 0)
+			return (error);
+	}
+
+	return (0);
+}
+
 int
 ufshci_dev_init_reference_clock(struct ufshci_controller *ctrlr)
 {
@@ -409,6 +557,11 @@ ufshci_dev_init_unipro(struct ufshci_controller *ctrlr)
 {
 	uint32_t pa_granularity, peer_pa_granularity;
 	uint32_t t_activate, pear_t_activate;
+	int error;
+
+	error = ufshci_dev_qcom_apply_dev_quirks(ctrlr);
+	if (error != 0)
+		return (error);
 
 	if (ctrlr->quirks & UFSHCI_QUIRK_LONG_PEER_PA_TACTIVATE) {
 		/*
@@ -514,6 +667,13 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 		    PA_NO_ADAPT;
 		if (ufshci_uic_send_dme_set(ctrlr, PA_TxHsAdaptType,
 		    adapt_type))
+			return (ENXIO);
+	}
+
+	if (ctrlr->ufs_dev.dev_quirks &
+	    UFSHCI_DEV_QUIRK_PA_TX_DEEMPHASIS_TUNING) {
+		if (ufshci_dev_qcom_set_tx_hs_equalizer(ctrlr, ctrlr->hs_gear,
+		    ctrlr->tx_lanes) != 0)
 			return (ENXIO);
 	}
 
@@ -669,8 +829,12 @@ ufshci_dev_get_descriptor(struct ufshci_controller *ctrlr)
 	ufshci_printf(ctrlr, "UFS device spec version %u.%u.%u\n",
 	    UFSHCIV(UFSHCI_VER_REG_MJR, ver), UFSHCIV(UFSHCI_VER_REG_MNR, ver),
 	    UFSHCIV(UFSHCI_VER_REG_VS, ver));
+	ufshci_printf(ctrlr, "UFS manufacturer ID 0x%03x\n",
+	    be16toh(device->dev_desc.wManufacturerID));
 	ufshci_printf(ctrlr, "%u enabled LUNs found\n",
 	    device->dev_desc.bNumberLU);
+
+	ufshci_dev_fixup_qcom_quirks(ctrlr);
 
 	error = ufshci_dev_read_geometry_descriptor(ctrlr, &device->geo_desc);
 	if (error)
