@@ -282,9 +282,8 @@ ufshci_acpi_map_qcom_phy_direct(struct ufshci_controller *ctrlr)
 	if (TUNABLE_UINT64_FETCH("hw.ufshci.qcom.phy_paddr",
 	    &phy_paddr_tunable)) {
 		ctrlr->qcom_phy_paddr = (bus_addr_t)phy_paddr_tunable;
-	} else if ((TUNABLE_INT_FETCH("hw.ufshci.qcom.phy_autodirect",
-	    &enable_autodirect) && enable_autodirect != 0) ||
-	    ctrlr->qcom_acpi_bringup_ready) {
+	} else if (TUNABLE_INT_FETCH("hw.ufshci.qcom.phy_autodirect",
+	    &enable_autodirect) && enable_autodirect != 0) {
 		host_paddr = rman_get_start(ctrlr->resource);
 		if (host_paddr < UFSHCI_QCOM_QMP_PHY_V6_HOST_DELTA) {
 			ufshci_printf(ctrlr,
@@ -299,9 +298,8 @@ ufshci_acpi_map_qcom_phy_direct(struct ufshci_controller *ctrlr)
 	} else {
 		ufshci_printf(ctrlr,
 		    "QCOM QMP UFS PHY direct map disabled; "
-		    "set hw.ufshci.qcom.phy_paddr, "
-		    "hw.ufshci.qcom.phy_autodirect=1, or "
-		    "hw.ufshci.qcom.acpi_bringup=1 to test it\n");
+		    "set hw.ufshci.qcom.phy_paddr or "
+		    "hw.ufshci.qcom.phy_autodirect=1 to test it\n");
 		return;
 	}
 

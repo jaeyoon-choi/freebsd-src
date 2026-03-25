@@ -138,7 +138,7 @@ static int
 ufshci_uic_wait_cmd(struct ufshci_controller *ctrlr,
     struct ufshci_uic_cmd *uic_cmd)
 {
-	uint32_t is;
+	uint32_t hcs, is, uiccmd;
 	int timeout;
 
 	mtx_assert(&ctrlr->uic_cmd_lock, MA_OWNED);
@@ -155,10 +155,13 @@ ufshci_uic_wait_cmd(struct ufshci_controller *ctrlr,
 			break;
 		}
 		if (timeout - ticks < 0) {
+			hcs = ufshci_mmio_read_4(ctrlr, hcs);
+			uiccmd = ufshci_mmio_read_4(ctrlr, uiccmd);
 			ufshci_printf(ctrlr,
-			    "UIC command is not completed "
-			    "within %d ms\n",
-			    ctrlr->uic_cmd_timeout_in_ms);
+			    "UIC command %#x is not completed within %d ms "
+			    "(IS=%#x HCS=%#x UICCMD=%#x)\n",
+			    uic_cmd->opcode, ctrlr->uic_cmd_timeout_in_ms, is,
+			    hcs, uiccmd);
 			return (ENXIO);
 		}
 
