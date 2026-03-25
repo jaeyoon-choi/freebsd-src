@@ -429,11 +429,24 @@ static void
 ufshci_dev_qcom_limit_lanes(struct ufshci_controller *ctrlr,
     uint32_t *connected_tx_lanes, uint32_t *connected_rx_lanes)
 {
+	static const uint32_t qcom_forced_max_lanes = 1;
 	uint32_t loader_max_lanes;
 	uint32_t orig_tx_lanes, orig_rx_lanes;
 
 	if (!(ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ))
 		return;
+
+	orig_tx_lanes = *connected_tx_lanes;
+	orig_rx_lanes = *connected_rx_lanes;
+	*connected_tx_lanes = min(*connected_tx_lanes, qcom_forced_max_lanes);
+	*connected_rx_lanes = min(*connected_rx_lanes, qcom_forced_max_lanes);
+	if (orig_tx_lanes != *connected_tx_lanes ||
+	    orig_rx_lanes != *connected_rx_lanes) {
+		ufshci_printf(ctrlr,
+		    "forcing connected lanes from tx=%u rx=%u to tx=%u rx=%u for QCOM bring-up\n",
+		    orig_tx_lanes, orig_rx_lanes, *connected_tx_lanes,
+		    *connected_rx_lanes);
+	}
 
 	loader_max_lanes = ufshci_dev_qcom_get_loader_cap(ctrlr,
 	    "hw.ufshci.qcom.max_lanes", 1, 2);
