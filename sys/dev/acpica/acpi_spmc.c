@@ -13,6 +13,7 @@
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/module.h>
+#include <sys/sbuf.h>
 #include <sys/uuid.h>
 
 #include <machine/_inttypes.h>
@@ -170,6 +171,21 @@ static void	acpi_spmc_check_dsm_set(struct acpi_spmc_softc *sc,
 		    ACPI_HANDLE handle, struct dsm_set *dsm_set);
 static int	acpi_spmc_get_constraints(device_t dev);
 static void	acpi_spmc_free_constraints(struct acpi_spmc_softc *sc);
+static bool	acpi_spmc_qcom_is_string(ACPI_OBJECT *obj, const char *str);
+static void	acpi_spmc_qcom_copy_name(ACPI_HANDLE handle, char *buf,
+		    size_t bufsize);
+static ACPI_HANDLE acpi_spmc_qcom_get_pep(device_t dev,
+		    ACPI_HANDLE consumer);
+static ACPI_OBJECT *acpi_spmc_qcom_find_device_package(ACPI_HANDLE consumer,
+		    ACPI_OBJECT *root);
+static bool	acpi_spmc_qcom_package_all_scalars(ACPI_OBJECT *obj);
+static void	acpi_spmc_qcom_format_object(struct sbuf *sb, ACPI_OBJECT *obj);
+static void	acpi_spmc_qcom_dump_value(device_t dev, const char *method,
+		    const char *path, ACPI_OBJECT *obj);
+static void	acpi_spmc_qcom_dump_node(device_t dev, const char *method,
+		    ACPI_OBJECT *obj, const char *path);
+static int	acpi_spmc_qcom_dump_method(device_t dev, ACPI_HANDLE consumer,
+		    ACPI_HANDLE pep, const char *method);
 
 static void	acpi_spmc_suspend(device_t dev, enum power_stype stype);
 static void	acpi_spmc_resume(device_t dev, enum power_stype stype);
@@ -530,6 +546,283 @@ acpi_spmc_run_dsm(device_t dev, struct dsm_set *dsm_set, int index)
 	}
 
 	AcpiOsFree(result.Pointer);
+}
+
+static bool
+acpi_spmc_qcom_is_string(ACPI_OBJECT *obj, const char *str)
+{
+
+	return (obj != NULL && obj->Type == ACPI_TYPE_STRING &&
+	    strcmp(obj->String.Pointer, str) == 0);
+}
+
+static void
+acpi_spmc_qcom_copy_name(ACPI_HANDLE handle, char *buf, size_t bufsize)
+{
+
+	strlcpy(buf, acpi_name(handle), bufsize);
+}
+
+static ACPI_HANDLE
+acpi_spmc_qcom_get_pep(device_t dev, ACPI_HANDLE consumer)
+{
+	ACPI_STATUS status;
+	ACPI_BUFFER buf;
+	ACPI_OBJECT *obj;
+	ACPI_HANDLE pep;
+
+	buf.Pointer = NULL;
+	buf.Length = ACPI_ALLOCATE_BUFFER;
+	status = AcpiEvaluateObjectTyped(consumer, "_DEP", NULL, &buf,
+	    ACPI_TYPE_PACKAGE);
+	if (ACPI_FAILURE(status)) {
+		device_printf(dev, "failed to evaluate _DEP: %s\n",
+		    AcpiFormatException(status));
+		return (NULL);
+	}
+
+	pep = NULL;
+	obj = buf.Pointer;
+	for (uint32_t i = 0; obj != NULL && i < obj->Package.Count; i++) {
+		ACPI_HANDLE handle;
+
+		handle = acpi_GetReference(consumer, &obj->Package.Elements[i]);
+		if (handle == NULL)
+			continue;
+		if (acpi_MatchHid(handle, "PNP0D80") != ACPI_MATCHHID_NOMATCH ||
+		    acpi_MatchHid(handle, "QCOM0C17") != ACPI_MATCHHID_NOMATCH) {
+			pep = handle;
+			break;
+		}
+	}
+
+	AcpiOsFree(obj);
+	return (pep);
+}
+
+static ACPI_OBJECT *
+acpi_spmc_qcom_find_device_package(ACPI_HANDLE consumer, ACPI_OBJECT *root)
+{
+	ACPI_HANDLE handle;
+	ACPI_OBJECT *pkg;
+
+	if (!ACPI_PKG_VALID(root, 1))
+		return (NULL);
+
+	for (uint32_t i = 0; i < root->Package.Count; i++) {
+		pkg = &root->Package.Elements[i];
+		if (!ACPI_PKG_VALID(pkg, 2))
+			continue;
+		if (!acpi_spmc_qcom_is_string(&pkg->Package.Elements[0], "DEVICE"))
+			continue;
+		handle = acpi_GetReference(consumer, &pkg->Package.Elements[1]);
+		if (handle == consumer)
+			return (pkg);
+	}
+
+	return (NULL);
+}
+
+static bool
+acpi_spmc_qcom_package_all_scalars(ACPI_OBJECT *obj)
+{
+
+	if (obj == NULL || obj->Type != ACPI_TYPE_PACKAGE)
+		return (false);
+
+	for (uint32_t i = 0; i < obj->Package.Count; i++) {
+		if (obj->Package.Elements[i].Type == ACPI_TYPE_PACKAGE)
+			return (false);
+	}
+
+	return (true);
+}
+
+static void
+acpi_spmc_qcom_format_object(struct sbuf *sb, ACPI_OBJECT *obj)
+{
+	ACPI_OBJECT *elem;
+
+	switch (obj->Type) {
+	case ACPI_TYPE_INTEGER:
+		sbuf_printf(sb, "%#jx", (uintmax_t)obj->Integer.Value);
+		break;
+	case ACPI_TYPE_STRING:
+		sbuf_printf(sb, "\"%s\"", obj->String.Pointer);
+		break;
+	case ACPI_TYPE_PACKAGE:
+		sbuf_putc(sb, '[');
+		for (uint32_t i = 0; i < obj->Package.Count; i++) {
+			if (i != 0)
+				sbuf_cat(sb, ", ");
+			elem = &obj->Package.Elements[i];
+			acpi_spmc_qcom_format_object(sb, elem);
+		}
+		sbuf_putc(sb, ']');
+		break;
+	case ACPI_TYPE_BUFFER:
+		sbuf_printf(sb, "<buffer %u>", obj->Buffer.Length);
+		break;
+	default:
+		sbuf_printf(sb, "<type %u>", obj->Type);
+		break;
+	}
+}
+
+static void
+acpi_spmc_qcom_dump_value(device_t dev, const char *method, const char *path,
+    ACPI_OBJECT *obj)
+{
+	struct sbuf *sb;
+
+	sb = sbuf_new_auto();
+	if (sb == NULL) {
+		device_printf(dev, "QCOM PEP %s %s\n", method, path);
+		return;
+	}
+
+	acpi_spmc_qcom_format_object(sb, obj);
+	if (sbuf_finish(sb) == 0)
+		device_printf(dev, "QCOM PEP %s %s = %s\n", method, path,
+		    sbuf_data(sb));
+	sbuf_delete(sb);
+}
+
+static void
+acpi_spmc_qcom_dump_node(device_t dev, const char *method, ACPI_OBJECT *obj,
+    const char *path)
+{
+	ACPI_OBJECT *first, *second;
+	char nextpath[256];
+	struct sbuf *sb;
+	uint32_t start;
+
+	if (obj == NULL)
+		return;
+	if (obj->Type != ACPI_TYPE_PACKAGE || obj->Package.Count == 0) {
+		acpi_spmc_qcom_dump_value(dev, method, path, obj);
+		return;
+	}
+	if (acpi_spmc_qcom_package_all_scalars(obj)) {
+		acpi_spmc_qcom_dump_value(dev, method, path, obj);
+		return;
+	}
+
+	first = &obj->Package.Elements[0];
+	if (first->Type != ACPI_TYPE_STRING) {
+		for (uint32_t i = 0; i < obj->Package.Count; i++) {
+			snprintf(nextpath, sizeof(nextpath), "%s/%u", path, i);
+			acpi_spmc_qcom_dump_node(dev, method,
+			    &obj->Package.Elements[i], nextpath);
+		}
+		return;
+	}
+
+	if (obj->Package.Count == 1) {
+		snprintf(nextpath, sizeof(nextpath), "%s/%s", path,
+		    first->String.Pointer);
+		device_printf(dev, "QCOM PEP %s %s\n", method, nextpath);
+		return;
+	}
+
+	second = &obj->Package.Elements[1];
+	if (obj->Package.Count == 2 &&
+	    (second->Type != ACPI_TYPE_PACKAGE ||
+	    acpi_spmc_qcom_package_all_scalars(second))) {
+		snprintf(nextpath, sizeof(nextpath), "%s/%s", path,
+		    first->String.Pointer);
+		acpi_spmc_qcom_dump_value(dev, method, nextpath, second);
+		return;
+	}
+
+	if (second->Type != ACPI_TYPE_PACKAGE) {
+		sb = sbuf_new_auto();
+		if (sb == NULL) {
+			snprintf(nextpath, sizeof(nextpath), "%s/%s", path,
+			    first->String.Pointer);
+		} else {
+			acpi_spmc_qcom_format_object(sb, second);
+			if (sbuf_finish(sb) == 0) {
+				snprintf(nextpath, sizeof(nextpath), "%s/%s[%s]",
+				    path, first->String.Pointer, sbuf_data(sb));
+			} else {
+				snprintf(nextpath, sizeof(nextpath), "%s/%s",
+				    path, first->String.Pointer);
+			}
+			sbuf_delete(sb);
+		}
+		start = 2;
+	} else {
+		snprintf(nextpath, sizeof(nextpath), "%s/%s", path,
+		    first->String.Pointer);
+		start = 1;
+	}
+
+	for (uint32_t i = start; i < obj->Package.Count; i++)
+		acpi_spmc_qcom_dump_node(dev, method, &obj->Package.Elements[i],
+		    nextpath);
+}
+
+static int
+acpi_spmc_qcom_dump_method(device_t dev, ACPI_HANDLE consumer, ACPI_HANDLE pep,
+    const char *method)
+{
+	ACPI_STATUS status;
+	ACPI_BUFFER buf;
+	ACPI_OBJECT *root, *pkg;
+	char consumer_name[256], pep_name[256], path[128];
+
+	buf.Pointer = NULL;
+	buf.Length = ACPI_ALLOCATE_BUFFER;
+	status = AcpiEvaluateObjectTyped(pep, __DECONST(char *, method), NULL,
+	    &buf, ACPI_TYPE_PACKAGE);
+	if (ACPI_FAILURE(status))
+		return (ENXIO);
+
+	root = buf.Pointer;
+	pkg = acpi_spmc_qcom_find_device_package(consumer, root);
+	if (pkg == NULL) {
+		AcpiOsFree(root);
+		return (ENOENT);
+	}
+
+	acpi_spmc_qcom_copy_name(consumer, consumer_name, sizeof(consumer_name));
+	acpi_spmc_qcom_copy_name(pep, pep_name, sizeof(pep_name));
+	device_printf(dev, "QCOM PEP %s recipe via %s for %s\n", method,
+	    pep_name, consumer_name);
+
+	snprintf(path, sizeof(path), "%s", method);
+	for (uint32_t i = 2; i < pkg->Package.Count; i++)
+		acpi_spmc_qcom_dump_node(dev, method, &pkg->Package.Elements[i],
+		    path);
+
+	AcpiOsFree(root);
+	return (0);
+}
+
+int
+acpi_spmc_dump_qcom_device(device_t dev)
+{
+	ACPI_HANDLE consumer, pep;
+	int error, dumped;
+
+	consumer = acpi_get_handle(dev);
+	if (consumer == NULL)
+		return (ENXIO);
+
+	pep = acpi_spmc_qcom_get_pep(dev, consumer);
+	if (pep == NULL)
+		return (ENOENT);
+
+	dumped = 0;
+	error = acpi_spmc_qcom_dump_method(dev, consumer, pep, "BPMD");
+	if (error == 0)
+		dumped++;
+	error = acpi_spmc_qcom_dump_method(dev, consumer, pep, "SDMD");
+	if (error == 0)
+		dumped++;
+
+	return (dumped != 0 ? 0 : ENOENT);
 }
 
 /*

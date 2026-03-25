@@ -391,6 +391,7 @@ ACPI_STATUS	acpi_EvaluateDSMTyped(ACPI_HANDLE handle,
 ACPI_STATUS	acpi_EvaluateOSC(ACPI_HANDLE handle, uint8_t *uuid,
 		    int revision, int count, uint32_t *caps_in,
 		    uint32_t *caps_out, bool query);
+int		acpi_spmc_dump_qcom_device(device_t dev);
 ACPI_STATUS	acpi_OverrideInterruptLevel(UINT32 InterruptNumber);
 ACPI_STATUS	acpi_SetIntrModel(int model);
 int		acpi_ReqSleepState(struct acpi_softc *sc, enum power_stype stype);

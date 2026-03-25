@@ -654,6 +654,16 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 	uint32_t peer_granularity;
 	int error;
 
+	if ((ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ) &&
+	    !ufshci_ctrlr_qcom_has_phy_mmio(ctrlr)) {
+		ufshci_printf(ctrlr,
+		    "QCOM PHY MMIO unavailable, keeping initial UIC power mode\n");
+		ctrlr->hs_gear = 0;
+		ctrlr->tx_lanes = 0;
+		ctrlr->rx_lanes = 0;
+		return (0);
+	}
+
 	error = ufshci_dev_get_max_pwr_mode(ctrlr, &hs_series,
 	    &connected_tx_lanes, &connected_rx_lanes);
 	if (error != 0)

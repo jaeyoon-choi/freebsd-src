@@ -334,6 +334,11 @@ ufshci_acpi_attach(device_t dev)
 	if (status != 0)
 		goto bad;
 
+	if ((ctrlr->quirks & UFSHCI_QUIRK_QCOM_CORE_CLK_300MHZ) != 0 &&
+	    acpi_spmc_dump_qcom_device(dev) != 0)
+		ufshci_printf(ctrlr,
+		    "QCOM PEP power recipe was not found in ACPI\n");
+
 	status = ufshci_acpi_setup_interrupts(ctrlr);
 	if (status != 0)
 		goto bad;

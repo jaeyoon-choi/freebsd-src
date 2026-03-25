@@ -206,7 +206,7 @@ ufshci_ctrlr_qcom_get_phy_mmio(struct ufshci_controller *ctrlr,
 	return (true);
 }
 
-static bool
+bool
 ufshci_ctrlr_qcom_has_phy_mmio(struct ufshci_controller *ctrlr)
 {
 	bus_space_tag_t tag;
@@ -651,6 +651,7 @@ ufshci_ctrlr_start(struct ufshci_controller *ctrlr, bool resetting)
 	ufshci_dev_init_uic_link_state(ctrlr);
 
 	if ((ctrlr->quirks & UFSHCI_QUIRK_REINIT_AFTER_MAX_GEAR_SWITCH) &&
+	    ctrlr->hs_gear != 0 &&
 	    ufshci_ctrlr_reinit_after_max_gear_switch(ctrlr) != 0) {
 		ufshci_ctrlr_fail(ctrlr);
 		return;

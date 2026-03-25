@@ -481,6 +481,7 @@ int ufshci_ctrlr_submit_transfer_request(struct ufshci_controller *ctrlr,
 int ufshci_ctrlr_send_nop(struct ufshci_controller *ctrlr);
 
 void ufshci_reg_dump(struct ufshci_controller *ctrlr);
+bool ufshci_ctrlr_qcom_has_phy_mmio(struct ufshci_controller *ctrlr);
 
 /* Device */
 int ufshci_dev_init(struct ufshci_controller *ctrlr);
