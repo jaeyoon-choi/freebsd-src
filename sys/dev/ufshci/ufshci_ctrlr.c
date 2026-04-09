@@ -264,6 +264,16 @@ ufshci_ctrlr_enable(struct ufshci_controller *ctrlr)
 	if (error)
 		return (error);
 
+	/*
+	 * Some controllers (e.g. Qualcomm) require TX LCC to be disabled
+	 * before link startup to avoid HS-Gear negotiation failures.
+	 */
+	if (ctrlr->quirks & UFSHCI_QUIRK_DISABLE_TX_LCC) {
+		error = ufshci_uic_send_dme_set(ctrlr, PA_LocalTxLccEnable, 0);
+		if (error)
+			return (error);
+	}
+
 	/* Send DME_LINKSTARTUP command to start the link startup procedure */
 	error = ufshci_uic_send_dme_link_startup(ctrlr);
 	if (error)

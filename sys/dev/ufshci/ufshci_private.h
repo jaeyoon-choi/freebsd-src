@@ -324,6 +324,8 @@ struct ufshci_controller {
 	     */
 #define UFSHCI_QUIRK_BROKEN_LSDBS_MCQS_CAP \
 	256 /* Some controllers have their LSDB and MCQS fields reset to 0. */
+#define UFSHCI_QUIRK_DISABLE_TX_LCC \
+	512 /* Disable PA_LocalTxLccEnable before link startup. */
 
 	uint32_t ref_clk;
 

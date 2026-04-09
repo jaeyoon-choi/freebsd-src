@@ -30,6 +30,8 @@
 #define PA_Granularity		0x15AA
 #define PA_TActivate		0x15A8
 
+#define PA_LocalTxLccEnable	0x155E
+
 #define PA_RemoteVerInfo	0x15A0
 #define PA_LocalVerInfo		0x15A9
 
