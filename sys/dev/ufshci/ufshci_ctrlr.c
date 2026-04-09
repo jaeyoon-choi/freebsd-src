@@ -62,7 +62,12 @@ ufshci_ctrlr_reinit_after_max_gear_switch(struct ufshci_controller *ctrlr)
 		return (error);
 
 	/* Initialize unipro */
-	return (ufshci_dev_init_unipro(ctrlr));
+	error = ufshci_dev_init_unipro(ctrlr);
+	if (error != 0)
+		return (error);
+
+	/* Re-establish HS-Gear after reinit; the link reverts to PWM-G1. */
+	return (ufshci_dev_init_uic_power_mode(ctrlr));
 }
 
 static void
