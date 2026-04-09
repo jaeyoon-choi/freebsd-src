@@ -55,6 +55,14 @@
 #define   PA_INITIAL_ADAPT		 1
 #define PA_PWRMode			 0x1571
 
+/* Qualcomm vendor-specific MMIO register offsets (from 0xC0 base) */
+#define QCOM_REG_UFS_SYS1CLK_1US	 0xC0
+#define QCOM_REG_UFS_TX_SYMBOL_CLK_NS_US 0xC4
+
+/* Qualcomm vendor-specific DME attributes */
+#define DME_VS_CORE_CLK_CTRL		 0xD002
+#define   DME_VS_CORE_CLK_CTRL_CLK_1US_CYCLES_MASK 0x0FF
+
 #define DME_LocalFC0ProtectionTimeOutVal 0xD041
 #define DME_LocalTC0ReplayTimeOutVal	 0xD042
 #define DME_LocalAFC0ReqTimeOutVal	 0xD043

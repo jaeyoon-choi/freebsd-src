@@ -328,6 +328,7 @@ struct ufshci_controller {
 	512 /* Disable PA_LocalTxLccEnable before link startup. */
 
 	uint32_t ref_clk;
+	uint32_t core_clk_freq_hz;
 
 	struct cam_sim *ufshci_sim;
 	struct cam_path *ufshci_path;

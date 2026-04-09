@@ -49,14 +49,15 @@ static struct ufshci_acpi_device {
 	const char *hid;
 	const char *desc;
 	uint32_t ref_clk;
+	uint32_t core_clk_freq_hz;
 	uint32_t quirks;
 } ufshci_acpi_devices[] = {
 	{ "QCOM24A5", "Qualcomm Snapdragon X Elite UFS Host Controller",
-	    UFSHCI_REF_CLK_19_2MHz,
+	    UFSHCI_REF_CLK_19_2MHz, 150000000,
 	    UFSHCI_QUIRK_REINIT_AFTER_MAX_GEAR_SWITCH |
 			UFSHCI_QUIRK_BROKEN_LSDBS_MCQS_CAP |
 			UFSHCI_QUIRK_DISABLE_TX_LCC },
-	{ 0x00000000, NULL, 0, 0 }
+	{ 0x00000000, NULL, 0, 0, 0 }
 };
 
 static char *ufshci_acpi_ids[] = { "QCOM24A5", NULL };
@@ -94,6 +95,7 @@ ufshci_acpi_probe(device_t dev)
 	if (acpi_dev->hid) {
 		ctrlr->quirks = acpi_dev->quirks;
 		ctrlr->ref_clk = acpi_dev->ref_clk;
+		ctrlr->core_clk_freq_hz = acpi_dev->core_clk_freq_hz;
 	}
 
 	if (acpi_dev->desc) {

@@ -265,6 +265,28 @@ ufshci_ctrlr_enable(struct ufshci_controller *ctrlr)
 		return (error);
 
 	/*
+	 * Configure vendor-specific clock timer registers before link
+	 * startup.  Qualcomm controllers need SYS1CLK_1US programmed
+	 * with the number of core-clock cycles per microsecond, and the
+	 * vendor DME attribute DME_VS_CORE_CLK_CTRL set accordingly.
+	 */
+	if (ctrlr->core_clk_freq_hz > 0) {
+		uint32_t cycles_per_us = ctrlr->core_clk_freq_hz / 1000000;
+		uint32_t core_clk_ctrl;
+
+		bus_space_write_4(ctrlr->bus_tag, ctrlr->bus_handle,
+		    QCOM_REG_UFS_SYS1CLK_1US, cycles_per_us);
+
+		if (ufshci_uic_send_dme_get(ctrlr, DME_VS_CORE_CLK_CTRL,
+			&core_clk_ctrl) == 0) {
+			core_clk_ctrl &= ~DME_VS_CORE_CLK_CTRL_CLK_1US_CYCLES_MASK;
+			core_clk_ctrl |= cycles_per_us;
+			ufshci_uic_send_dme_set(ctrlr, DME_VS_CORE_CLK_CTRL,
+			    core_clk_ctrl);
+		}
+	}
+
+	/*
 	 * Some controllers (e.g. Qualcomm) require TX LCC to be disabled
 	 * before link startup to avoid HS-Gear negotiation failures.
 	 */
