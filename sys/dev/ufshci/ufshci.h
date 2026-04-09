@@ -51,6 +51,8 @@
 #define PA_PWRModeUserData5		 0x15B5
 
 #define PA_TxHsAdaptType		 0x15D4
+#define   PA_NO_ADAPT			 3
+#define   PA_INITIAL_ADAPT		 1
 #define PA_PWRMode			 0x1571
 
 #define DME_LocalFC0ProtectionTimeOutVal 0xD041

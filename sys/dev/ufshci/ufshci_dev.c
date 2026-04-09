@@ -386,6 +386,15 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 	if (ufshci_uic_send_dme_set(ctrlr, PA_HSSeries, hs_series))
 		return (ENXIO);
 
+	/*
+	 * Configure HS TX adaptive equalization.
+	 * HS-G4 and above require PA_INITIAL_ADAPT; lower gears use
+	 * PA_NO_ADAPT.
+	 */
+	if (ufshci_uic_send_dme_set(ctrlr, PA_TxHsAdaptType,
+		ctrlr->hs_gear >= 4 ? PA_INITIAL_ADAPT : PA_NO_ADAPT))
+		return (ENXIO);
+
 	/* Set Timeout values */
 	if (ufshci_uic_send_dme_set(ctrlr, PA_PWRModeUserData0,
 		DL_FC0ProtectionTimeOutVal_Default))
