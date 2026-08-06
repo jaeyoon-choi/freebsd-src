@@ -313,8 +313,9 @@ ufshci_dev_init_unipro(struct ufshci_controller *ctrlr)
 int
 ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 {
-	/* HSSerise: A = 1, B = 2 */
-	const uint32_t hs_series = 2;
+	/* The platform table picks the HS series. Default to Rate-B. */
+	const uint32_t hs_series = (ctrlr->hs_series != 0) ?
+	    ctrlr->hs_series : UFSHCI_HS_SERIES_B;
 	/*
 	 * TX/RX PWRMode:
 	 * - TX[3:0], RX[7:4]
@@ -379,8 +380,16 @@ ufshci_dev_init_uic_power_mode(struct ufshci_controller *ctrlr)
 	if (ufshci_uic_send_dme_set(ctrlr, PA_RxTermination, true))
 		return (ENXIO);
 
-	/* Set HSSerise (A = 1, B = 2) */
+	/* Set HSSeries */
 	if (ufshci_uic_send_dme_set(ctrlr, PA_HSSeries, hs_series))
+		return (ENXIO);
+
+	/*
+	 * HS-G4 and above need initial adaptation. Lower gears must use
+	 * no adaptation.
+	 */
+	if (ufshci_uic_send_dme_set(ctrlr, PA_TxHsAdaptType,
+		ctrlr->hs_gear >= 4 ? PA_INITIAL_ADAPT : PA_NO_ADAPT))
 		return (ENXIO);
 
 	/* Set Timeout values */
