@@ -1,0 +1,1 @@
+[리뷰 주의 — 복구 경로] GB에서 vm_fault로 실증(1차 start가 sim_attach 전 실패 + 복구 리셋). sim_attach 조건을 !resetting에서 ufshci_sim==NULL로 변경 — detach/실패 경로가 포인터를 NULL로 유지하는 것에 의존.
