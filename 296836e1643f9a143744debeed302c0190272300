@@ -1,0 +1,1 @@
+[리뷰 주의 — 동시성] RESERVED 슬롯은 qlock 안에서 회수 후 완료, SCHEDULED는 미사용이던 NEED_ERROR_HANDLING 상태로 claim. 이 상태를 읽는 곳(process_cpl의 SCHEDULED 비교, reserve_slot의 FREE 비교, abort_complete의 !=FREE 비교) 확인함 — abort_complete만 claim된 트래커를 여전히 완료 가능(TM abort 완료 시에만 도달, 리셋 재설계에서 정리).
