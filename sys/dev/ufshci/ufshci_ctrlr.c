@@ -127,10 +127,22 @@ ufshci_ctrlr_start(struct ufshci_controller *ctrlr, bool resetting)
 
 	ufshci_dev_init_uic_link_state(ctrlr);
 
-	if ((ctrlr->quirks & UFSHCI_QUIRK_REINIT_AFTER_MAX_GEAR_SWITCH) &&
-	    ufshci_ctrlr_reinit_after_max_gear_switch(ctrlr) != 0) {
-		ufshci_ctrlr_fail(ctrlr);
-		return;
+	if (ctrlr->quirks & UFSHCI_QUIRK_REINIT_AFTER_MAX_GEAR_SWITCH) {
+		uint32_t probe;
+
+		/*
+		 * The reinit is only needed when the link did not survive
+		 * the gear switch. A peer read needs real traffic on the
+		 * new link, so it shows whether the new mode works.
+		 */
+		if (ufshci_uic_send_dme_peer_get(ctrlr, PA_Granularity,
+		    &probe) != 0) {
+			if (ufshci_ctrlr_reinit_after_max_gear_switch(
+			    ctrlr) != 0) {
+				ufshci_ctrlr_fail(ctrlr);
+				return;
+			}
+		}
 	}
 
 	/* Read Controller Descriptor (Device, Geometry) */
