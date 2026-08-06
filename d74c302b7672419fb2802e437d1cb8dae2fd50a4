@@ -1,0 +1,1 @@
+[리뷰 주의 — 동시성] fail 경로 직렬화. atomic_swap_32 게이트로 첫 호출자만 큐 순회. 잔여: reset_task의 is_failed 검사~enable 사이 좁은 창, abort_complete 경로와의 레이스는 리셋 재설계(보류 #2)에서.
