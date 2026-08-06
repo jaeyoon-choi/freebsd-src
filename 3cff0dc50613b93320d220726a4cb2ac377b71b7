@@ -1,0 +1,1 @@
+[리뷰 주의 — 동시성] submit의 is_failed 체크는 qlock 아래라 fail walk와 직렬화됨: walk 도중 끼어드는 submit은 walk가 놓은 락을 이어받으므로 is_failed=true를 반드시 봄. 호출자 3곳(sim, ctrlr_cmd×2) 모두 submit 에러 시 스스로 req free + 에러 전파 확인함. retry 중단은 admin 요청이 죽은 큐로 재제출되는 것을 막음.
