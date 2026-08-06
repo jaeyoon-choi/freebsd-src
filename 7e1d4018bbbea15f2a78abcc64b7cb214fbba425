@@ -1,0 +1,1 @@
+[리뷰 주의 — 완료 경로] 수동 완료 응답을 실제 읽는 위치(TM=UTMRD, 일반=UCD)에 쓰도록 수정 + task_tag 채움. GB INVARIANTS 커널에서 KASSERT(task_tag 불일치) 패닉으로 실증됨. utrd/utmrd union aliasing 문제(보류 노트)와 연관.
