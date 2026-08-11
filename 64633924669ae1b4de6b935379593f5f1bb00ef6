@@ -1,0 +1,1 @@
+[리뷰 주의 — 동작 변경] REINIT quirk을 무조건 실행에서 peer-probe 조건부로 변경. probe는 DME_PEER_GET(PA_Granularity) — 실제 링크 왕복 필요라 생사 판정 정확. ablation 실증: 이 커밋 없으면 성공한 G5-A가 reinit으로 파괴되어 PWM 고착.
