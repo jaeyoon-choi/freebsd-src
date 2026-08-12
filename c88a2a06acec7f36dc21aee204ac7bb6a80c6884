@@ -1,0 +1,1 @@
+[리뷰 주의 — 동시성] RESERVED 슬롯은 건드리지 않고 skip — RESERVED가 qlock 밖에서 관측되는 유일한 창은 submit 스레드의 PRDT 실패 수동 완료 중이며, 그 스레드가 완료를 보장함(뺏으면 NULL deref/이중 free 레이스). SCHEDULED는 미사용이던 NEED_ERROR_HANDLING으로 claim. 이 상태 독자 확인함(process_cpl의 SCHEDULED 비교, reserve_slot의 FREE 비교, abort_complete의 !=FREE 비교) — abort_complete만 claim된 트래커를 여전히 완료 가능(TM abort 완료 시에만 도달, 리셋 재설계에서 정리).
