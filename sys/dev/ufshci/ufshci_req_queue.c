@@ -551,34 +551,44 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 	retriable = req->is_admin && !req_queue->ctrlr->is_failed;
 	retry = error && retriable &&
 	    req->retries < req_queue->ctrlr->retry_count;
-	if (retry)
-		hwq->num_retries++;
-	if (error && req->retries >= req_queue->ctrlr->retry_count && retriable)
-		hwq->num_failures++;
 
 	KASSERT(tr->req, ("there is no request assigned to the tracker\n"));
 	KASSERT(cpl.response_upiu.header.task_tag ==
 		req->request_upiu.header.task_tag,
 	    ("response task_tag does not match request task_tag\n"));
 
-	if (!retry && req->payload_valid) {
-		bus_dmamap_sync(hwq->dma_tag_payload,
-		    tr->payload_dma_map,
-		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
-	}
-
 	mtx_lock(&hwq->qlock);
 
 	/* Clear the UTRL Completion Notification register */
 	req_queue->qops.clear_cpl_ntf(req_queue->ctrlr, tr);
 
+	/*
+	 * A retry skips the submit path's recovery check, and a queue in
+	 * recovery loses the doorbell, so fail the request instead.
+	 */
+	if (retry && hwq->recovery_state != RECOVERY_NONE)
+		retry = false;
+
 	if (retry) {
+		hwq->num_retries++;
 		req->retries++;
 		ufshci_req_queue_submit_tracker(req_queue, tr,
 		    req->data_direction);
 		mtx_unlock(&hwq->qlock);
 		return;
 	}
+
+	if (error && retriable)
+		hwq->num_failures++;
+
+	mtx_unlock(&hwq->qlock);
+
+	if (req->payload_valid) {
+		bus_dmamap_sync(hwq->dma_tag_payload, tr->payload_dma_map,
+		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
+	}
+
+	mtx_lock(&hwq->qlock);
 
 	if (req->payload_valid) {
 		bus_dmamap_unload(hwq->dma_tag_payload,
