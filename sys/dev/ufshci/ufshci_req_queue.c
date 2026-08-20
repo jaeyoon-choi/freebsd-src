@@ -10,6 +10,8 @@
 #include <sys/conf.h>
 #include <sys/domainset.h>
 #include <sys/module.h>
+#include <sys/proc.h>
+#include <sys/smp.h>
 
 #include <cam/scsi/scsi_all.h>
 
@@ -936,11 +938,13 @@ _ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 	if (req_queue->ctrlr->is_failed)
 		return (ENXIO);
 
+	/*
+	 * A full ring returns EBUSY. The caller falls back to another
+	 * queue or asks CAM to retry, so do not log it.
+	 */
 	error = req_queue->qops.reserve_slot(hwq, &tr);
-	if (error != 0) {
-		ufshci_printf(req_queue->ctrlr, "Failed to get tracker");
+	if (error != 0)
 		return (error);
-	}
 	KASSERT(tr, ("There is no tracker allocated."));
 
 	if (tr->slot_state == UFSHCI_SLOT_STATE_RESERVED ||
@@ -967,15 +971,25 @@ _ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 	return (0);
 }
 
-/*
- * Pick the hardware queue that carries this request.
- * TODO: MCQs should use a separate Admin queue.
- */
+/* Pick the hardware queue that carries this request. */
 static struct ufshci_hw_queue *
 ufshci_req_queue_select_hwq(struct ufshci_req_queue *req_queue,
-    struct ufshci_request *req __unused)
+    struct ufshci_request *req)
 {
-	return (req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q));
+	struct ufshci_controller *ctrlr = req_queue->ctrlr;
+	uint32_t qid;
+
+	if (req_queue->queue_mode != UFSHCI_Q_MODE_MCQ) {
+		qid = UFSHCI_SDB_Q;
+	} else if (req->is_admin) {
+		/* Admin requests own queue 0. */
+		qid = UFSHCI_MCQ_ADMIN_Q;
+	} else {
+		/* Spread the I/O requests over the queues by CPU. */
+		qid = 1 + UFSHCI_QP(ctrlr, curcpu);
+	}
+
+	return (req_queue->qops.get_hw_queue(req_queue, qid));
 }
 
 int
@@ -991,6 +1005,33 @@ ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 	mtx_lock(&hwq->qlock);
 	error = _ufshci_req_queue_submit_request(req_queue, req, hwq);
 	mtx_unlock(&hwq->qlock);
+
+	/*
+	 * The CAM openings cover the rings of every I/O queue, but a
+	 * burst from one CPU can fill its own ring first. Probe the
+	 * other I/O queues before asking CAM to retry.
+	 */
+	if (error == EBUSY && req_queue->queue_mode == UFSHCI_Q_MODE_MCQ &&
+	    !req->is_admin) {
+		uint32_t first_qid, qid;
+
+		first_qid = hwq->id;
+		qid = first_qid;
+		for (;;) {
+			if (++qid >= req_queue->num_q)
+				qid = UFSHCI_MCQ_ADMIN_Q + 1;
+			if (qid == first_qid)
+				break;
+
+			hwq = req_queue->qops.get_hw_queue(req_queue, qid);
+			mtx_lock(&hwq->qlock);
+			error = _ufshci_req_queue_submit_request(req_queue,
+			    req, hwq);
+			mtx_unlock(&hwq->qlock);
+			if (error != EBUSY)
+				break;
+		}
+	}
 
 	return (error);
 }
