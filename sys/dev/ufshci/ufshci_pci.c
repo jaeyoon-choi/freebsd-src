@@ -164,7 +164,6 @@ ufshci_pci_setup_shared(struct ufshci_controller *ctrlr, int rid)
 {
 	int error;
 
-	ctrlr->num_io_queues = 1;
 	ctrlr->rid = rid;
 	ctrlr->res = bus_alloc_resource_any(ctrlr->dev, SYS_RES_IRQ,
 	    &ctrlr->rid, RF_SHAREABLE | RF_ACTIVE);
@@ -191,18 +190,12 @@ ufshci_pci_setup_interrupts(struct ufshci_controller *ctrlr)
 	int force_intx = 0;
 	int num_io_queues, per_cpu_io_queues, min_cpus_per_ioq;
 
-	TUNABLE_INT_FETCH("hw.ufshci.force_intx", &force_intx);
-	if (force_intx)
-		goto intx;
-
-	if (pci_msix_count(dev) == 0)
-		goto msi;
-
 	/*
-	 * TODO: Need to implement MCQ(Multi Circular Queue)
-	 * Example: num_io_queues = mp_ncpus;
+	 * Compute the I/O queue count this machine wants from the CPU
+	 * topology. The controller construct code bounds it by what
+	 * the controller and the queue mode support.
 	 */
-	num_io_queues = 1;
+	num_io_queues = mp_ncpus;
 
 	TUNABLE_INT_FETCH("hw.ufshci.num_io_queues", &num_io_queues);
 	if (num_io_queues < 1 || num_io_queues > mp_ncpus)
@@ -220,10 +213,16 @@ ufshci_pci_setup_interrupts(struct ufshci_controller *ctrlr)
 		    max(1, mp_ncpus / min_cpus_per_ioq));
 	}
 
-	num_io_queues = min(num_io_queues, max(1, pci_msix_count(dev) - 1));
-
 	if (num_io_queues > vm_ndomains)
 		num_io_queues -= num_io_queues % vm_ndomains;
+	ctrlr->num_io_queues = num_io_queues;
+
+	TUNABLE_INT_FETCH("hw.ufshci.force_intx", &force_intx);
+	if (force_intx)
+		goto intx;
+
+	if (pci_msix_count(dev) == 0)
+		goto msi;
 
 	/*
 	 * The driver has a single interrupt handler that serves every
