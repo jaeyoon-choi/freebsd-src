@@ -155,6 +155,10 @@ ufshci_req_queue_stop_watchdog(struct ufshci_req_queue *req_queue)
 	for (qid = 0; qid < req_queue->num_q; qid++) {
 		hwq = req_queue->qops.get_hw_queue(req_queue, qid);
 
+		/* Skip the queues a failed construct never reached. */
+		if (!mtx_initialized(&hwq->recovery_lock))
+			continue;
+
 		mtx_lock(&hwq->recovery_lock);
 		hwq->timer_armed = false;
 		mtx_unlock(&hwq->recovery_lock);
