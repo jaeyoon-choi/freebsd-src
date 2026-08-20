@@ -178,12 +178,11 @@ ufshci_req_queue_manual_complete_tracker(struct ufshci_tracker *tr, uint8_t ocs,
 	if (req_queue->is_task_mgmt) {
 		resp_header = (struct ufshci_upiu_header *)
 		    hwq->utmrd[tr->slot_num].response_upiu;
-		hwq->utmrd[tr->slot_num].overall_command_status = ocs;
 	} else {
 		resp_header = (struct ufshci_upiu_header *)
 		    tr->ucd->response_upiu;
-		hwq->utrd[tr->slot_num].overall_command_status = ocs;
 	}
+	tr->ocs = ocs;
 	resp_header->response = rc;
 	/*
 	 * The hardware never wrote a response. Copy the task tag from
@@ -264,17 +263,14 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 	if (req_queue->is_task_mgmt) {
 		memcpy(&cpl.response_upiu,
 		    (void *)hwq->utmrd[tr->slot_num].response_upiu, cpl.size);
-
-		ocs = hwq->utmrd[tr->slot_num].overall_command_status;
 	} else {
 		bus_dmamap_sync(req_queue->dma_tag_ucd, req_queue->ucdmem_map,
 		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 
 		memcpy(&cpl.response_upiu, (void *)tr->ucd->response_upiu,
 		    cpl.size);
-
-		ocs = hwq->utrd[tr->slot_num].overall_command_status;
 	}
+	ocs = tr->ocs;
 
 	error = ufshci_req_queue_response_is_error(req_queue, ocs,
 	    &cpl.response_upiu);

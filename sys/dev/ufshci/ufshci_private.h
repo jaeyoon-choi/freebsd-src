@@ -91,6 +91,8 @@ struct ufshci_tracker {
 	struct ufshci_hw_queue *hwq;
 	uint8_t slot_num;
 	enum ufshci_slot_state slot_state;
+	/* Overall command status, copied from the completed descriptor. */
+	uint8_t ocs;
 	size_t response_size;
 	sbintime_t deadline;
 

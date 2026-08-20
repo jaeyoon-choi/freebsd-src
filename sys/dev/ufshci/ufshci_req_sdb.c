@@ -605,6 +605,12 @@ ufshci_req_sdb_process_cpl(struct ufshci_hw_queue *hwq)
 			slot);
 		mtx_unlock(&hwq->qlock);
 		if (completed) {
+			if (req_queue->is_task_mgmt)
+				tr->ocs =
+				    hwq->utmrd[slot].overall_command_status;
+			else
+				tr->ocs =
+				    hwq->utrd[slot].overall_command_status;
 			ufshci_req_queue_complete_tracker(tr);
 			done = true;
 		}
