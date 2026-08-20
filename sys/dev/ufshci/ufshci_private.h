@@ -173,6 +173,15 @@ struct ufshci_hw_queue {
 	bus_dmamap_t queuemem_map;
 	bus_addr_t req_queue_addr;
 
+	/* UTP command descriptor pool owned by this queue */
+	struct ufshci_utp_cmd_desc *ucd;
+	bus_dma_tag_t dma_tag_ucd;
+	/*
+	 * Payload tag. Busdma keeps the produced segment list in the
+	 * tag, so two queues must not share one.
+	 */
+	bus_dma_tag_t dma_tag_payload;
+	bus_dmamap_t ucdmem_map;
 	bus_addr_t *ucd_bus_addr;
 
 	uint32_t num_entries;
@@ -225,13 +234,6 @@ struct ufshci_req_queue {
 	uint32_t num_entries;
 	uint32_t num_trackers;
 
-	/* Shared DMA resource */
-	struct ufshci_utp_cmd_desc *ucd;
-
-	bus_dma_tag_t dma_tag_ucd;
-	bus_dma_tag_t dma_tag_payload;
-
-	bus_dmamap_t ucdmem_map;
 };
 
 enum ufshci_dev_pwr {
@@ -492,6 +494,11 @@ void ufshci_ctrlr_cmd_send_scsi_command(struct ufshci_controller *ctrlr,
     uint32_t data_len, uint8_t lun, bool is_write);
 
 /* Request Queue */
+int ufshci_req_queue_cmd_desc_construct(struct ufshci_req_queue *req_queue,
+    struct ufshci_hw_queue *hwq, uint32_t num_entries,
+    struct ufshci_controller *ctrlr);
+void ufshci_req_queue_cmd_desc_destroy(struct ufshci_req_queue *req_queue,
+    struct ufshci_hw_queue *hwq);
 bool ufshci_req_queue_process_completions(struct ufshci_req_queue *req_queue);
 int ufshci_utmr_req_queue_construct(struct ufshci_controller *ctrlr);
 int ufshci_utr_req_queue_construct(struct ufshci_controller *ctrlr);

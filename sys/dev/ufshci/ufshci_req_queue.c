@@ -138,6 +138,158 @@ ufshci_utr_req_queue_enable(struct ufshci_controller *ctrlr)
 	    &ctrlr->transfer_req_queue));
 }
 
+static void
+ufshci_ucd_map(void *arg, bus_dma_segment_t *seg, int nseg, int error)
+{
+	struct ufshci_hw_queue *hwq = arg;
+	int i;
+
+	if (error != 0) {
+		printf("ufshci: Failed to map UCD, error = %d\n", error);
+		return;
+	}
+
+	if (hwq->num_trackers != nseg) {
+		printf(
+		    "ufshci: Failed to map UCD, num_trackers = %d, nseg = %d\n",
+		    hwq->num_trackers, nseg);
+		return;
+	}
+
+	for (i = 0; i < nseg; i++) {
+		hwq->ucd_bus_addr[i] = seg[i].ds_addr;
+	}
+}
+
+int
+ufshci_req_queue_cmd_desc_construct(struct ufshci_req_queue *req_queue,
+    struct ufshci_hw_queue *hwq, uint32_t num_entries,
+    struct ufshci_controller *ctrlr)
+{
+	size_t ucd_allocsz, payload_allocsz;
+	uint8_t *ucdmem;
+	uint32_t i;
+	int error;
+
+	hwq->ucd_bus_addr = malloc(sizeof(bus_addr_t) * hwq->num_trackers,
+	    M_UFSHCI, M_ZERO | M_NOWAIT);
+	if (hwq->ucd_bus_addr == NULL)
+		return (ENOMEM);
+
+	/*
+	 * Each component must be page aligned, and individual PRP lists
+	 * cannot cross a page boundary.
+	 */
+	ucd_allocsz = num_entries * sizeof(struct ufshci_utp_cmd_desc);
+	ucd_allocsz = roundup2(ucd_allocsz, ctrlr->page_size);
+	payload_allocsz = num_entries * ctrlr->max_xfer_size;
+
+	/*
+	 * Allocate physical memory for UTP Command Descriptor (UCD)
+	 * Note: UFSHCI UCD format is restricted to 128-byte alignment.
+	 */
+	error = bus_dma_tag_create(bus_get_dma_tag(ctrlr->dev), 128, 0,
+	    BUS_SPACE_MAXADDR, BUS_SPACE_MAXADDR, NULL, NULL, ucd_allocsz,
+	    howmany(ucd_allocsz, sizeof(struct ufshci_utp_cmd_desc)),
+	    sizeof(struct ufshci_utp_cmd_desc), 0, NULL, NULL,
+	    &hwq->dma_tag_ucd);
+	if (error != 0) {
+		ufshci_printf(ctrlr, "request cmd desc tag create failed %d\n",
+		    error);
+		return (error);
+	}
+
+	error = bus_dmamem_alloc(hwq->dma_tag_ucd, (void **)&ucdmem,
+	    BUS_DMA_COHERENT | BUS_DMA_NOWAIT, &hwq->ucdmem_map);
+	if (error != 0) {
+		ufshci_printf(ctrlr, "failed to allocate cmd desc memory\n");
+		return (error);
+	}
+
+	error = bus_dmamap_load(hwq->dma_tag_ucd, hwq->ucdmem_map, ucdmem,
+	    ucd_allocsz, ufshci_ucd_map, hwq, 0);
+	if (error != 0) {
+		ufshci_printf(ctrlr, "failed to load cmd desc memory\n");
+		bus_dmamem_free(hwq->dma_tag_ucd, ucdmem, hwq->ucdmem_map);
+		return (error);
+	}
+
+	hwq->ucd = (struct ufshci_utp_cmd_desc *)ucdmem;
+
+	/*
+	 * Allocate physical memory for PRDT
+	 * Note: UFSHCI PRDT format is restricted to 8-byte alignment.
+	 * Busdma builds the segment list in the tag, so every hardware
+	 * queue needs its own. Two queues loading at the same time
+	 * would otherwise overwrite each other's segments.
+	 */
+	error = bus_dma_tag_create(bus_get_dma_tag(ctrlr->dev), 8,
+	    ctrlr->page_size, BUS_SPACE_MAXADDR, BUS_SPACE_MAXADDR, NULL,
+	    NULL, payload_allocsz,
+	    howmany(payload_allocsz, ctrlr->page_size) + 1, ctrlr->page_size,
+	    0, NULL, NULL, &hwq->dma_tag_payload);
+	if (error != 0) {
+		ufshci_printf(ctrlr, "request prdt tag create failed %d\n",
+		    error);
+		return (error);
+	}
+
+	for (i = 0; i < hwq->num_trackers; i++) {
+		error = bus_dmamap_create(hwq->dma_tag_payload, 0,
+		    &hwq->act_tr[i]->payload_dma_map);
+		if (error != 0) {
+			ufshci_printf(ctrlr,
+			    "request payload map create failed %d\n", error);
+			return (error);
+		}
+
+		hwq->act_tr[i]->ucd = (struct ufshci_utp_cmd_desc *)ucdmem;
+		hwq->act_tr[i]->ucd_bus_addr = hwq->ucd_bus_addr[i];
+
+		ucdmem += sizeof(struct ufshci_utp_cmd_desc);
+	}
+
+	return (0);
+}
+
+void
+ufshci_req_queue_cmd_desc_destroy(struct ufshci_req_queue *req_queue,
+    struct ufshci_hw_queue *hwq)
+{
+	struct ufshci_tracker *tr;
+	uint32_t i;
+
+	if (hwq->dma_tag_payload != NULL) {
+		for (i = 0; i < hwq->num_trackers; i++) {
+			tr = hwq->act_tr[i];
+			if (tr->payload_dma_map != NULL) {
+				bus_dmamap_destroy(hwq->dma_tag_payload,
+				    tr->payload_dma_map);
+				tr->payload_dma_map = NULL;
+			}
+		}
+	}
+
+	if (hwq->dma_tag_payload != NULL) {
+		bus_dma_tag_destroy(hwq->dma_tag_payload);
+		hwq->dma_tag_payload = NULL;
+	}
+
+	if (hwq->ucd) {
+		bus_dmamap_unload(hwq->dma_tag_ucd, hwq->ucdmem_map);
+		bus_dmamem_free(hwq->dma_tag_ucd, hwq->ucd, hwq->ucdmem_map);
+		hwq->ucd = NULL;
+	}
+
+	if (hwq->dma_tag_ucd) {
+		bus_dma_tag_destroy(hwq->dma_tag_ucd);
+		hwq->dma_tag_ucd = NULL;
+	}
+
+	free(hwq->ucd_bus_addr, M_UFSHCI);
+	hwq->ucd_bus_addr = NULL;
+}
+
 static bool
 ufshci_req_queue_response_is_error(struct ufshci_req_queue *req_queue,
     uint8_t ocs, union ufshci_reponse_upiu *response)
@@ -264,7 +416,7 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 		memcpy(&cpl.response_upiu,
 		    (void *)hwq->utmrd[tr->slot_num].response_upiu, cpl.size);
 	} else {
-		bus_dmamap_sync(req_queue->dma_tag_ucd, req_queue->ucdmem_map,
+		bus_dmamap_sync(hwq->dma_tag_ucd, hwq->ucdmem_map,
 		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 
 		memcpy(&cpl.response_upiu, (void *)tr->ucd->response_upiu,
@@ -291,7 +443,7 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 
 	if (!retry) {
 		if (req->payload_valid) {
-			bus_dmamap_sync(req_queue->dma_tag_payload,
+			bus_dmamap_sync(hwq->dma_tag_payload,
 			    tr->payload_dma_map,
 			    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 		}
@@ -311,7 +463,7 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 		    req->data_direction);
 	} else {
 		if (req->payload_valid) {
-			bus_dmamap_unload(req_queue->dma_tag_payload,
+			bus_dmamap_unload(hwq->dma_tag_payload,
 			    tr->payload_dma_map);
 		}
 
@@ -377,7 +529,7 @@ ufshci_payload_map(void *arg, bus_dma_segment_t *seg, int nseg, int error)
 		++prdt_entry;
 	}
 
-	bus_dmamap_sync(tr->req_queue->dma_tag_payload, tr->payload_dma_map,
+	bus_dmamap_sync(tr->hwq->dma_tag_payload, tr->payload_dma_map,
 	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 }
 
@@ -393,7 +545,7 @@ ufshci_req_queue_prepare_prdt(struct ufshci_tracker *tr)
 	memset(cmd_desc->prd_table, 0, sizeof(cmd_desc->prd_table));
 
 	/* Filling PRDT enrties with payload */
-	error = bus_dmamap_load_mem(tr->req_queue->dma_tag_payload,
+	error = bus_dmamap_load_mem(tr->hwq->dma_tag_payload,
 	    tr->payload_dma_map, &req->payload, ufshci_payload_map, tr,
 	    BUS_DMA_NOWAIT);
 	if (error != 0) {
@@ -751,7 +903,7 @@ ufshci_req_queue_submit_tracker(struct ufshci_req_queue *req_queue,
 		    data_direction, ucd_paddr, response_off, response_len,
 		    tr->prdt_off, tr->prdt_entry_cnt);
 
-		bus_dmamap_sync(req_queue->dma_tag_ucd, req_queue->ucdmem_map,
+		bus_dmamap_sync(hwq->dma_tag_ucd, hwq->ucdmem_map,
 		    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 	}
 
