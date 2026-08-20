@@ -506,21 +506,38 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 		ctrlr->num_io_queues = 1;
 	}
 
+	if (ctrlr->enable_mcq)
+		ufshci_printf(ctrlr, "MCQ enabled with %u I/O queues\n",
+		    ctrlr->num_io_queues);
+	else
+		ufshci_printf(ctrlr, "Single doorbell mode enabled\n");
+
 	/* Allocate and initialize UTP Transfer Request List or SQ/CQ. */
 	error = ufshci_utr_req_queue_construct(ctrlr);
 	if (error)
 		return (error);
 
-	/*
-	 * Two of the slots stay out of the count handed to CAM. The
-	 * reserve step keeps the last one for admin requests, so a
-	 * reset's bring-up command always has somewhere to land. The one
-	 * after it is headroom the queue needs to stay busy. Giving CAM
-	 * as many openings as there are slots that I/O can use measured
-	 * at about a seventh of the throughput, so do not raise this
-	 * without testing it under load.
-	 */
-	ctrlr->max_hw_pend_io = ctrlr->transfer_req_queue.num_entries - 2;
+	if (ctrlr->enable_mcq) {
+		/*
+		 * The admin queue is separate. Each I/O queue ring
+		 * holds one slot back to tell full from empty.
+		 */
+		ctrlr->max_hw_pend_io = ctrlr->num_io_queues *
+		    (UFSHCI_MCQ_ENTRIES - 1);
+	} else {
+		/*
+		 * Two of the slots stay out of the count handed to
+		 * CAM. The reserve step keeps the last one for admin
+		 * requests, so a reset's bring-up command always has
+		 * somewhere to land. The one after it is headroom the
+		 * queue needs to stay busy. Giving CAM as many
+		 * openings as there are slots that I/O can use
+		 * measured at about a seventh of the throughput, so do
+		 * not raise this without testing it under load.
+		 */
+		ctrlr->max_hw_pend_io =
+		    ctrlr->transfer_req_queue.num_entries - 2;
+	}
 
 	/* Create a thread for the taskqueue. */
 	ctrlr->taskqueue = taskqueue_create("ufshci_taskq", M_WAITOK,
