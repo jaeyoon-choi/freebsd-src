@@ -440,6 +440,12 @@ struct ufshci_controller {
 	uint32_t max_rx_lanes;
 
 	uint32_t is_failed;
+
+	/*
+	 * Debug aid. The submit path drops the doorbell for this many
+	 * requests, so they time out and drive the recovery path.
+	 */
+	uint32_t debug_drop_ios;
 };
 
 #define ufshci_mmio_offsetof(reg) offsetof(struct ufshci_registers, reg)

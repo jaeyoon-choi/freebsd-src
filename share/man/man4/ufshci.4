@@ -207,6 +207,13 @@ nodes are currently implemented:
 (R) Number of trackers in the UTP transfer queue.
 .It Va dev.ufshci.0.ioq.0.num_entries
 (R) Number of entries in the UTP transfer queue.
+.It Va dev.ufshci.0.force_reset
+(RW) Write a non-zero value to reset the controller now.
+This is a debug aid for exercising the recovery path.
+.It Va dev.ufshci.0.drop_next_ios
+(RW) Number of requests whose doorbell the driver drops, so that they
+time out and drive the recovery path.
+This is a debug aid.
 .It Va dev.ufshci.0.adminq.*
 (R) Admin queue counterparts of the per-queue ioq statistics.
 They exist in the MCQ mode, where admin requests run on their own queue.

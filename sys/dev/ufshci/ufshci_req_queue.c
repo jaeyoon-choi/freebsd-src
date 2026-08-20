@@ -998,6 +998,21 @@ ufshci_req_queue_submit_tracker(struct ufshci_req_queue *req_queue,
 
 	tr->slot_state = UFSHCI_SLOT_STATE_SCHEDULED;
 
+	/*
+	 * Debug aid. Leave the request on the queue without telling
+	 * the controller about it. The watchdog then finds it and
+	 * runs the recovery path. Admin requests are exempt. The
+	 * driver waits for its own bring-up commands, so dropping one
+	 * would stall the reset instead of testing it.
+	 */
+	if (__predict_false(ctrlr->debug_drop_ios > 0) && !req->is_admin) {
+		ctrlr->debug_drop_ios--;
+		ufshci_printf(ctrlr,
+		    "debug: dropped the doorbell for task tag %u\n",
+		    req->request_upiu.header.task_tag);
+		return;
+	}
+
 	/* Ring the doorbell */
 	req_queue->qops.ring_doorbell(ctrlr, tr);
 }
