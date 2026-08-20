@@ -200,7 +200,16 @@ ufshchi_sim_scsiio(struct cam_sim *sim, union ccb *ccb)
 	ccb->ccb_h.status |= CAM_SIM_QUEUED;
 	error = ufshci_ctrlr_submit_transfer_request(ctrlr, req);
 	if (error == EBUSY) {
-		ccb->ccb_h.status = CAM_SCSI_BUSY;
+		/*
+		 * The queues are full or in recovery. Freeze the device
+		 * queue and requeue without charging a retry. A reset
+		 * holds the queues for hundreds of milliseconds. Without
+		 * the freeze CAM reissues the request at once and spins
+		 * on it, and with a plain error it would burn every
+		 * retry in a few microseconds.
+		 */
+		xpt_freeze_devq(ccb->ccb_h.path, 1);
+		ccb->ccb_h.status = CAM_REQUEUE_REQ | CAM_DEV_QFRZN;
 		ufshci_free_request(req);
 		xpt_done(ccb);
 		return;

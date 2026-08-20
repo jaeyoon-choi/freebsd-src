@@ -488,18 +488,35 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 		ctrlr->num_io_queues = 1;
 	}
 
+	if (ctrlr->enable_mcq)
+		ufshci_printf(ctrlr, "MCQ enabled with %u I/O queues\n",
+		    ctrlr->num_io_queues);
+	else
+		ufshci_printf(ctrlr, "Single doorbell mode enabled\n");
+
 	/* Allocate and initialize UTP Transfer Request List or SQ/CQ. */
 	error = ufshci_utr_req_queue_construct(ctrlr);
 	if (error)
 		return (error);
 
-	/* TODO: Separate IO and Admin slot */
+	if (ctrlr->enable_mcq) {
+		/*
+		 * The admin queue is separate. Each I/O queue ring
+		 * holds one slot back to tell full from empty.
+		 */
+		ctrlr->max_hw_pend_io = ctrlr->num_io_queues *
+		    (UFSHCI_MCQ_ENTRIES - 1);
+	} else {
+		/* TODO: Separate IO and Admin slot */
 
-	/*
-	 * max_hw_pend_io is the number of slots in the transfer_req_queue.
-	 * Reduce num_entries by one to reserve an admin slot.
-	 */
-	ctrlr->max_hw_pend_io = ctrlr->transfer_req_queue.num_entries - 1;
+		/*
+		 * max_hw_pend_io is the number of slots in the
+		 * transfer_req_queue. Reduce num_entries by one to
+		 * reserve an admin slot.
+		 */
+		ctrlr->max_hw_pend_io =
+		    ctrlr->transfer_req_queue.num_entries - 1;
+	}
 
 	/* Create a thread for the taskqueue. */
 	ctrlr->taskqueue = taskqueue_create("ufshci_taskq", M_WAITOK,

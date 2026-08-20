@@ -49,6 +49,21 @@ static const struct ufshci_qops sdb_utr_qops = {
 	.get_inflight_io = ufshci_req_sdb_get_inflight_io,
 };
 
+static const struct ufshci_qops mcq_utr_qops = {
+	.construct = ufshci_req_mcq_construct,
+	.destroy = ufshci_req_mcq_destroy,
+	.get_hw_queue = ufshci_req_mcq_get_hw_queue,
+	.enable = ufshci_req_mcq_enable,
+	.disable = ufshci_req_mcq_disable,
+	.reserve_slot = ufshci_req_mcq_reserve_slot,
+	.ring_doorbell = ufshci_req_mcq_ring_doorbell,
+	/* MCQ learns about a completion from the CQ ring instead. */
+	.is_doorbell_cleared = NULL,
+	.clear_cpl_ntf = ufshci_req_mcq_clear_cpl_ntf,
+	.process_cpl = ufshci_req_mcq_process_cpl,
+	.get_inflight_io = ufshci_req_mcq_get_inflight_io,
+};
+
 int
 ufshci_utmr_req_queue_construct(struct ufshci_controller *ctrlr)
 {
@@ -100,17 +115,20 @@ ufshci_utr_req_queue_construct(struct ufshci_controller *ctrlr)
 	struct ufshci_req_queue *req_queue;
 	int error;
 
-	/*
-	 * Currently, it does not support MCQ mode, so it should be set to SDB
-	 * mode by default.
-	 * TODO: Determine queue mode by checking Capability Registers
-	 */
 	req_queue = &ctrlr->transfer_req_queue;
-	req_queue->queue_mode = UFSHCI_Q_MODE_SDB;
-	req_queue->qops = sdb_utr_qops;
+	if (ctrlr->enable_mcq) {
+		req_queue->queue_mode = UFSHCI_Q_MODE_MCQ;
+		req_queue->qops = mcq_utr_qops;
 
-	error = req_queue->qops.construct(ctrlr, req_queue, UFSHCI_UTR_ENTRIES,
-	    /*is_task_mgmt*/ false);
+		error = req_queue->qops.construct(ctrlr, req_queue,
+		    UFSHCI_MCQ_ENTRIES, /*is_task_mgmt*/ false);
+	} else {
+		req_queue->queue_mode = UFSHCI_Q_MODE_SDB;
+		req_queue->qops = sdb_utr_qops;
+
+		error = req_queue->qops.construct(ctrlr, req_queue,
+		    UFSHCI_UTR_ENTRIES, /*is_task_mgmt*/ false);
+	}
 
 	return (error);
 }
