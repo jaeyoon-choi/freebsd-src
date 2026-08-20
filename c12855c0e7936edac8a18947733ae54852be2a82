@@ -1,0 +1,1 @@
+[리뷰 주의 — 복구 semantics] disable에서 claim, enable은 전 큐 기동 후 claim된 것만 abort. 스캔-vs-abort 이중완료 레이스(GPF 재현) 수정.
