@@ -360,9 +360,11 @@ ufshci_req_sdb_destroy(struct ufshci_controller *ctrlr,
 }
 
 struct ufshci_hw_queue *
-ufshci_req_sdb_get_hw_queue(struct ufshci_req_queue *req_queue)
+ufshci_req_sdb_get_hw_queue(struct ufshci_req_queue *req_queue, uint32_t qid)
 {
-	return &req_queue->hwq[UFSHCI_SDB_Q];
+	KASSERT(qid == UFSHCI_SDB_Q,
+	    ("Single doorbell mode has only one queue"));
+	return &req_queue->hwq[qid];
 }
 
 void
@@ -521,11 +523,10 @@ ufshci_req_sdb_take_slot(struct ufshci_hw_queue *hwq, int slot,
 }
 
 int
-ufshci_req_sdb_reserve_slot(struct ufshci_req_queue *req_queue,
+ufshci_req_sdb_reserve_slot(struct ufshci_hw_queue *hwq,
     struct ufshci_tracker **tr, bool admin)
 {
-	struct ufshci_hw_queue *hwq = &req_queue->hwq[UFSHCI_SDB_Q];
-	int last = req_queue->num_entries - 1;
+	int last = hwq->num_entries - 1;
 	int slot;
 
 	/*
@@ -534,7 +535,7 @@ ufshci_req_sdb_reserve_slot(struct ufshci_req_queue *req_queue,
 	 * held back, and admin requests search down from it so that they
 	 * take the held slot rather than one an I/O could have used.
 	 */
-	if (admin || req_queue->is_task_mgmt) {
+	if (admin || hwq->req_queue->is_task_mgmt) {
 		for (slot = last; slot >= 0; slot--)
 			if (ufshci_req_sdb_take_slot(hwq, slot, tr))
 				return (0);
@@ -613,9 +614,9 @@ ufshci_req_sdb_utr_is_doorbell_cleared(struct ufshci_controller *ctrlr,
 }
 
 bool
-ufshci_req_sdb_process_cpl(struct ufshci_req_queue *req_queue)
+ufshci_req_sdb_process_cpl(struct ufshci_hw_queue *hwq)
 {
-	struct ufshci_hw_queue *hwq = &req_queue->hwq[UFSHCI_SDB_Q];
+	struct ufshci_req_queue *req_queue = hwq->req_queue;
 	struct ufshci_tracker *tr;
 	uint8_t slot;
 	bool done = false;
