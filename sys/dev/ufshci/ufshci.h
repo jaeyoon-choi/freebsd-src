@@ -272,6 +272,35 @@ _Static_assert(sizeof(struct ufshci_utp_cmd_desc) ==
 	UFSHCI_UTP_COMMAND_DESCRIPTOR_SIZE,
     "ufshci_utp_cmd_desc must be 8192 bytes");
 
+/* UFSHCI spec 4.1, section 6.2.2.1 "Completion Queue Entry" */
+enum ufshci_cqe_extended_error_code {
+	UFSHCI_CQE_EEC_NO_EXTRA_INFORMATION = 0x00,
+	UFSHCI_CQE_EEC_DUPLICATE_TASK = 0x01,
+};
+
+struct ufshci_completion_queue_entry {
+	/* dword 0-1: [63:7] UCD base address, [4:0] SQ identifier */
+	uint64_t utp_cmd_desc_base_addr;
+	/* dword 2 */
+	uint16_t response_upiu_length;
+	uint16_t response_upiu_offset;
+	/* dword 3 */
+	uint16_t prdt_length;
+	uint16_t prdt_offset;
+	/* dword 4 */
+	uint8_t overall_command_status;
+	uint8_t extended_error_code;
+	uint16_t reserved0;
+	/* dword 5-7 */
+	uint32_t reserved1[3];
+} __packed __aligned(8);
+
+_Static_assert(sizeof(struct ufshci_completion_queue_entry) == 32,
+    "ufshci_completion_queue_entry must be 32 bytes");
+
+#define UFSHCI_CQE_UCD_BASE_ADDR_MASK 0xffffffffffffff80ULL
+#define UFSHCI_CQE_SQID_MASK	      0x1fULL
+
 #define UFSHCI_UTP_TASK_MGMT_REQ_SIZE  32
 #define UFSHCI_UTP_TASK_MGMT_RESP_SIZE 32
 
