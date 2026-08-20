@@ -190,7 +190,6 @@ ufshci_pci_setup_interrupts(struct ufshci_controller *ctrlr)
 	device_t dev = ctrlr->dev;
 	int force_intx = 0;
 	int num_io_queues, per_cpu_io_queues, min_cpus_per_ioq;
-	int num_vectors_requested;
 
 	TUNABLE_INT_FETCH("hw.ufshci.force_intx", &force_intx);
 	if (force_intx)
@@ -198,12 +197,6 @@ ufshci_pci_setup_interrupts(struct ufshci_controller *ctrlr)
 
 	if (pci_msix_count(dev) == 0)
 		goto msi;
-
-	/*
-	 * Try to allocate one MSI-X per core for I/O queues, plus one
-	 * for admin queue, but accept single shared MSI-X if have to.
-	 * Fall back to MSI if can't get any MSI-X.
-	 */
 
 	/*
 	 * TODO: Need to implement MCQ(Multi Circular Queue)
@@ -229,40 +222,29 @@ ufshci_pci_setup_interrupts(struct ufshci_controller *ctrlr)
 
 	num_io_queues = min(num_io_queues, max(1, pci_msix_count(dev) - 1));
 
-again:
 	if (num_io_queues > vm_ndomains)
 		num_io_queues -= num_io_queues % vm_ndomains;
-	num_vectors_requested = min(num_io_queues + 1, pci_msix_count(dev));
-	ctrlr->msi_count = num_vectors_requested;
+
+	/*
+	 * The driver has a single interrupt handler that serves every
+	 * queue. Allocate one MSI-X vector and route it there. Ask for
+	 * more vectors once per-queue handlers exist.
+	 */
+	ctrlr->msi_count = 1;
 	if (pci_alloc_msix(dev, &ctrlr->msi_count) != 0) {
 		ufshci_printf(ctrlr, "unable to allocate MSI-X\n");
 		ctrlr->msi_count = 0;
 		goto msi;
 	}
-	if (ctrlr->msi_count == 1)
-		return (ufshci_pci_setup_shared(ctrlr, 1));
-	if (ctrlr->msi_count != num_vectors_requested) {
-		pci_release_msi(dev);
-		num_io_queues = ctrlr->msi_count - 1;
-		goto again;
-	}
-
-	ctrlr->num_io_queues = num_io_queues;
-	return (0);
+	return (ufshci_pci_setup_shared(ctrlr, 1));
 
 msi:
-	/*
-	 * Try to allocate 2 MSIs (admin and I/O queues), but accept single
-	 * shared if have to.  Fall back to INTx if can't get any MSI.
-	 */
-	ctrlr->msi_count = min(pci_msi_count(dev), 2);
+	/* Try a single MSI. Fall back to INTx if that fails. */
+	ctrlr->msi_count = min(pci_msi_count(dev), 1);
 	if (ctrlr->msi_count > 0) {
 		if (pci_alloc_msi(dev, &ctrlr->msi_count) != 0) {
 			ufshci_printf(ctrlr, "unable to allocate MSI\n");
 			ctrlr->msi_count = 0;
-		} else if (ctrlr->msi_count == 2) {
-			ctrlr->num_io_queues = 1;
-			return (0);
 		}
 	}
 
