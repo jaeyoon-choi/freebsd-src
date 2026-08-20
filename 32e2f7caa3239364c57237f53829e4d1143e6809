@@ -1,0 +1,1 @@
+[리뷰 주의 — 복구 semantics] recovery 창 doorbell 증발 방지. 3차 리뷰 반영: admin 재시도도 recovery면 중단, timeout_recovery 락 계약 명시.
