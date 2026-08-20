@@ -36,6 +36,9 @@ Support for the SCSI command set
 .It
 Operation in the legacy single-doorbell queue mode
 .It
+Operation in the Multi-Circular Queue (MCQ) mode with one admin queue
+and multiple I/O queues
+.It
 Support for the PCI Express bus
 .El
 .Pp
@@ -55,10 +58,24 @@ Universal Flash Storage Host Controller Interface 4.1 and earlier.
 .Sh LOADER TUNABLES
 The
 .Nm
-driver currently operates with a single doorbell (one I/O-queue), so any
-tunables that change the queue count are ignored.
-When Multi-Circular Queue (MCQ) support is added and multiple queues
-become available, the following queue count tunable values will take effect:
+driver uses the MCQ mode on a version 4.0 or later controller that
+reports MCQ support, and on a controller without the legacy
+single-doorbell mode.
+Other controllers use the legacy single-doorbell mode with one I/O
+queue.
+In the MCQ mode, the driver creates one I/O queue per CPU core by default,
+bounded by what the controller supports and by the 8-bit task tag,
+which allows at most seven I/O queues.
+.Pp
+To force the legacy single-doorbell mode on an MCQ-capable controller,
+set the following tunable value in loader.conf(5):
+.Pp
+.Dl Va hw.ufshci.use_mcq=0
+.Pp
+To set the number of I/O queues in the MCQ mode, set the following
+tunable value in loader.conf(5):
+.Pp
+.Dl Va hw.ufshci.num_io_queues=X
 .Pp
 To force a single I/O queue pair shared by all CPUs, set the following
 tunable value in loader.conf(5):
@@ -66,7 +83,7 @@ tunable value in loader.conf(5):
 .Dl Va hw.ufshci.per_cpu_io_queues=0
 .Pp
 To assign more than one CPU per I/O queue pair, thereby reducing the
-number of MSI-X vectors consumed by the device, set the following tunable
+number of I/O queues created, set the following tunable
 value in loader.conf(5):
 .Pp
 .Dl Va hw.ufshci.min_cpus_per_ioq=X
@@ -85,10 +102,6 @@ To force the driver to use legacy INTx interrupts, set the following tunable
 value in loader.conf(5):
 .Pp
 .Dl Va hw.ufshci.force_intx=1
-.Pp
-.Sy Note:
-until MCQ support is available the driver always uses legacy INTx,
-so this value effectively remains 1.
 .Sh SYSCTL VARIABLES
 The following controller-level
 .Xr sysctl 8
@@ -99,13 +112,15 @@ nodes are currently implemented:
 .It Va dev.ufshci.0.num_retries
 (R) Number of command retries for the entire controller.
 .It Va dev.ufshci.0.num_intr_handler_calls
-(R) Number of times the interrupt handler has been called.
+(R) Sum of the per-queue interrupt handler call counts.
 .It Va dev.ufshci.0.num_cmds
 (R) Total number of commands issued by the controller.
 .It Va dev.ufshci.0.timeout_period
 (RW) Configured timeout period (in seconds).
 .It Va dev.ufshci.0.cap
 (R) Host controller capabilities register value.
+.It Va dev.ufshci.0.mcqcap
+(R) Multi-Circular Queue capabilities register value.
 .It Va dev.ufshci.0.num_io_queues
 (R) Number of I/O-queue pairs.
 .It Va dev.ufshci.0.io_queue_mode
@@ -198,6 +213,9 @@ This is a debug aid.
 (RW) Whether a timed out task is aborted before the controller is reset.
 Set to 0 to make a timeout go straight to the controller reset.
 A controller that cannot abort tasks keeps this at 0.
+.It Va dev.ufshci.0.adminq.*
+(R) Admin queue counterparts of the per-queue ioq statistics.
+They exist in the MCQ mode, where admin requests run on their own queue.
 .El
 .Sh SEE ALSO
 .Xr cam 4 ,
