@@ -82,6 +82,8 @@ enum ufshci_slot_state {
 	UFSHCI_SLOT_STATE_SCHEDULED = 0x2,
 	UFSHCI_SLOT_STATE_TIMEOUT = 0x3,
 	UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING = 0x4,
+	/* A walker owns the slot and is completing it out of band. */
+	UFSHCI_SLOT_STATE_COMPLETING = 0x5,
 };
 
 struct ufshci_tracker {
@@ -531,6 +533,7 @@ int ufshci_req_queue_cmd_desc_construct(struct ufshci_req_queue *req_queue,
     struct ufshci_controller *ctrlr);
 void ufshci_req_queue_cmd_desc_destroy(struct ufshci_req_queue *req_queue,
     struct ufshci_hw_queue *hwq);
+void ufshci_req_queue_complete_aborted_hwq(struct ufshci_hw_queue *hwq);
 bool ufshci_req_queue_process_completions(struct ufshci_req_queue *req_queue);
 int ufshci_utmr_req_queue_construct(struct ufshci_controller *ctrlr);
 int ufshci_utr_req_queue_construct(struct ufshci_controller *ctrlr);

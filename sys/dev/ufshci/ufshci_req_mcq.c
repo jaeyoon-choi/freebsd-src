@@ -436,6 +436,16 @@ ufshci_req_mcq_enable(struct ufshci_controller *ctrlr,
 		}
 	}
 
+	/*
+	 * The disable path claimed the requests that were on the
+	 * rings a reset wiped. Return them as aborted only after
+	 * every queue is back. A completion here can resubmit onto
+	 * any queue right away. An aborted admin request retries onto
+	 * its own ring, and a CAM retry can pick any I/O queue.
+	 */
+	for (qid = 0; qid < req_queue->num_q; qid++)
+		ufshci_req_queue_complete_aborted_hwq(&req_queue->hwq[qid]);
+
 	return (0);
 }
 
@@ -630,6 +640,24 @@ ufshci_req_mcq_disable(struct ufshci_controller *ctrlr,
 		TAILQ_FOREACH_SAFE(tr, &hwq->outstanding_tr, tailq,
 		    tr_temp) {
 			tr->deadline = SBT_MAX;
+
+			/*
+			 * A failed controller never enables the queues
+			 * again, so the failure path owns the requests.
+			 * Claiming them here would strand them.
+			 */
+			if (ctrlr->is_failed)
+				continue;
+
+			/*
+			 * Claim the tracker. The rings restart from a
+			 * clean state, so its completion never comes.
+			 * The enable path returns it as aborted, and
+			 * the claim keeps the completion scan away.
+			 */
+			if (tr->slot_state == UFSHCI_SLOT_STATE_SCHEDULED)
+				tr->slot_state =
+				    UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING;
 		}
 
 		mtx_unlock(&hwq->qlock);
