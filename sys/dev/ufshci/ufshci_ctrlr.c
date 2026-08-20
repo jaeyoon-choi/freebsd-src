@@ -317,6 +317,10 @@ ufshci_ctrlr_enable(struct ufshci_controller *ctrlr)
 	ie |= UFSHCIM(UFSHCI_IE_REG_HCFEE);  /* Host Ctrlr Fatal Error */
 	ie |= UFSHCIM(UFSHCI_IE_REG_SBFEE);  /* System Bus Fatal Error */
 	ie |= UFSHCIM(UFSHCI_IE_REG_CEFEE);  /* Crypto Engine Fatal Error */
+	if (ctrlr->enable_mcq) {
+		ie |= UFSHCIM(UFSHCI_IE_REG_SQEE); /* MCQ SQ Event */
+		ie |= UFSHCIM(UFSHCI_IE_REG_CQEE); /* MCQ CQ Event */
+	}
 	ufshci_mmio_write_4(ctrlr, ie, ie);
 
 	/* TODO: Initialize interrupt Aggregation Control Register (UTRIACR) */
@@ -644,7 +648,7 @@ ufshci_ctrlr_start_config_hook(void *arg)
 void
 ufshci_ctrlr_poll(struct ufshci_controller *ctrlr)
 {
-	uint32_t is;
+	uint32_t is, mcq_events;
 
 	is = ufshci_mmio_read_4(ctrlr, is);
 
@@ -721,11 +725,16 @@ ufshci_ctrlr_poll(struct ufshci_controller *ctrlr)
 		ufshci_req_queue_process_completions(
 		    &ctrlr->transfer_req_queue);
 	}
-	/* MCQ CQ Event Status */
-	if (is & UFSHCIM(UFSHCI_IS_REG_CQES)) {
-		/* TODO: We need to process completion Queue Pairs */
-		ufshci_printf(ctrlr, "MCQ completion not yet implemented\n");
-		ufshci_mmio_write_4(ctrlr, is, UFSHCIM(UFSHCI_IS_REG_CQES));
+	/*
+	 * MCQ SQ and CQ Event Status. Clear it before the scan, so an
+	 * event that lands during the scan raises it again.
+	 */
+	mcq_events = is &
+	    (UFSHCIM(UFSHCI_IS_REG_SQES) | UFSHCIM(UFSHCI_IS_REG_CQES));
+	if (mcq_events != 0) {
+		ufshci_mmio_write_4(ctrlr, is, mcq_events);
+		ufshci_req_queue_process_completions(
+		    &ctrlr->transfer_req_queue);
 	}
 }
 
