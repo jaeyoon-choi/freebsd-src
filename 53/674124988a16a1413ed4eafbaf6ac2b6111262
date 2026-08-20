@@ -1,0 +1,1 @@
+[리뷰 주의 — 동작 전환점] 기본 MCQ attach. use_mcq=0으로 SDB 강제 가능. EBUSY는 CAM_REQUEUE_REQ로 재시도 미소모. QEMU mcq=true/false 10/10.
