@@ -492,6 +492,15 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 	/* Clear the UTRL Completion Notification register */
 	req_queue->qops.clear_cpl_ntf(req_queue->ctrlr, tr);
 
+	/*
+	 * The retry path re-enters the submit code directly, so it
+	 * skips the reserve step that tests the queue state. A queue
+	 * in recovery loses the doorbell write, so fail the request
+	 * instead of retrying it there.
+	 */
+	if (retry && hwq->recovery_state != RECOVERY_NONE)
+		retry = false;
+
 	if (retry) {
 		req->retries++;
 		ufshci_req_queue_submit_tracker(req_queue, tr,
@@ -661,6 +670,8 @@ ufshci_req_queue_timeout_recovery(struct ufshci_controller *ctrlr,
 	 * Step 5. All previous commands were timeout.
 	 * Recovery failed, reset the host controller.
 	 */
+	mtx_assert(&hwq->recovery_lock, MA_OWNED);
+
 	ufshci_printf(ctrlr,
 	    "Recovery step 5: Resetting controller due to a timeout.\n");
 	hwq->recovery_state = RECOVERY_WAITING;
@@ -717,8 +728,15 @@ ufshci_abort_complete(void *arg, const struct ufshci_completion *status,
 			return;
 		}
 
-		/* Abort Task failed. Perform recovery steps 2-5 */
+		/*
+		 * Abort Task failed. Perform recovery steps 2-5.
+		 * The watchdog calls this with the recovery lock held,
+		 * so take it here too. The lock order is recovery_lock
+		 * then qlock, and this path holds neither.
+		 */
+		mtx_lock(&tr->hwq->recovery_lock);
 		ufshci_req_queue_timeout_recovery(tr->hwq->ctrlr, tr->hwq);
+		mtx_unlock(&tr->hwq->recovery_lock);
 	} else {
 		mtx_unlock(&tr->hwq->qlock);
 	}
@@ -977,6 +995,14 @@ _ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 
 	if (req_queue->ctrlr->is_failed)
 		return (ENXIO);
+
+	/*
+	 * A queue in recovery loses its doorbell write when the enable
+	 * path reprograms the ring pointers. Bounce the request. The
+	 * caller probes another queue or asks CAM to retry.
+	 */
+	if (hwq->recovery_state != RECOVERY_NONE)
+		return (EBUSY);
 
 	/*
 	 * A full ring returns EBUSY. The caller falls back to another
