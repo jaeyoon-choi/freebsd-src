@@ -1,0 +1,1 @@
+[리뷰 주의 — 복구 semantics] disable에서 claim, enable은 전 큐 기동 후 claim된 것만 abort. 스캔-vs-abort 이중완료 레이스(GPF 재현)와 doorbell 증발 리셋 폭풍(22회 재현) 수정. ctrlr_fail 경로의 동종 좁은 레이스는 기존 유지(별건).
