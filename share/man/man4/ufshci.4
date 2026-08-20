@@ -7,7 +7,7 @@
 .\"
 .\" Author: Jaeyoon Choi <j_yoon.choi@samsung.com>
 .\"
-.Dd July 17, 2025
+.Dd August 20, 2026
 .Dt UFSHCI 4
 .Os
 .Sh NAME
@@ -42,6 +42,9 @@ Support for the SCSI command set
 .It
 Operation in the legacy single-doorbell queue mode
 .It
+Operation in the Multi-Circular Queue (MCQ) mode with one admin queue
+and multiple I/O queues
+.It
 Support for the PCI Express bus
 .El
 .Pp
@@ -61,10 +64,25 @@ Universal Flash Storage Host Controller Interface 4.1 and earlier.
 .Sh CONFIGURATION
 The
 .Nm
-driver currently operates with a single doorbell (one I/O-queue), so any
-tunables that change the queue count are ignored.
-When Multi-Circular Queue (MCQ) support is added and multiple queues
-become available, the following queue count tunable values will take effect:
+driver uses the MCQ mode on a version 4.0 or later controller that
+reports MCQ support.
+Other controllers use the legacy single-doorbell mode with one I/O
+queue.
+In the MCQ mode, the driver creates one I/O queue per CPU by default,
+bounded by what the controller supports and by the 8-bit task tag,
+which allows at most seven I/O queues.
+.Pp
+To force the legacy single-doorbell mode on an MCQ-capable controller,
+set the following tunable value in loader.conf(5):
+.Bd -literal -offset indent
+hw.ufshci.use_mcq=0
+.Ed
+.Pp
+To set the number of I/O queues in the MCQ mode, set the following
+tunable value in loader.conf(5):
+.Bd -literal -offset indent
+hw.ufshci.num_io_queues=X
+.Ed
 .Pp
 To force a single I/O queue pair shared by all CPUs, set the following
 tunable value in loader.conf(5):
@@ -73,7 +91,7 @@ hw.ufshci.per_cpu_io_queues=0
 .Ed
 .Pp
 To assign more than one CPU per I/O queue pair, thereby reducing the
-number of MSI-X vectors consumed by the device, set the following tunable
+number of I/O queues created, set the following tunable
 value in loader.conf(5):
 .Bd -literal -offset indent
 hw.ufshci.min_cpus_per_ioq=X
@@ -93,9 +111,6 @@ hw.ufshci.retry_count=X
 .Pp
 To force the driver to use legacy INTx interrupts, set the following tunable
 value in loader.conf(5):
-.br
-(Note: until MCQ support is available the driver always uses legacy INTx, so
-this value effectively remains 1)
 .Bd -literal -offset indent
 hw.ufshci.force_intx=1
 .Ed
@@ -192,6 +207,9 @@ nodes are currently implemented:
 (R) Number of trackers in the UTP transfer queue.
 .It Va dev.ufshci.0.ioq.0.num_entries
 (R) Number of entries in the UTP transfer queue.
+.It Va dev.ufshci.0.adminq.*
+(R) Admin queue counterparts of the per-queue ioq statistics.
+They exist in the MCQ mode, where admin requests run on their own queue.
 .El
 .Sh SEE ALSO
 .Xr cam 4 ,
