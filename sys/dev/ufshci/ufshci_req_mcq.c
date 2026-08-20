@@ -311,6 +311,18 @@ ufshci_req_mcq_enable_hwq(struct ufshci_controller *ctrlr,
 		goto out;
 	}
 
+	/*
+	 * Report the submission queue events the driver handles. The
+	 * head entry fetch event fires on every fetch, so leave it
+	 * off.
+	 */
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_SQIS(hwq->sqisao),
+	    UFSHCIM(UFSHCI_SQIS_REG_SSS) | UFSHCIM(UFSHCI_SQIS_REG_SCS) |
+		UFSHCIM(UFSHCI_SQIS_REG_CDS));
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_SQIE(hwq->sqisao),
+	    UFSHCIM(UFSHCI_SQIS_REG_SSS) | UFSHCIM(UFSHCI_SQIS_REG_SCS) |
+		UFSHCIM(UFSHCI_SQIS_REG_CDS));
+
 	/* Clear a stale completion interrupt and enable it. */
 	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQIS(hwq->cqisao),
 	    UFSHCIM(UFSHCI_CQIS_REG_TEPS));
@@ -524,7 +536,7 @@ ufshci_req_mcq_process_cpl(struct ufshci_hw_queue *hwq)
 	struct ufshci_controller *ctrlr = hwq->ctrlr;
 	struct ufshci_completion_queue_entry *cqe;
 	struct ufshci_tracker *tr;
-	uint32_t cq_tail;
+	uint32_t cq_tail, sqis;
 	bool completed;
 	bool done = false;
 
@@ -549,6 +561,20 @@ ufshci_req_mcq_process_cpl(struct ufshci_hw_queue *hwq)
 	 */
 	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQIS(hwq->cqisao),
 	    UFSHCIM(UFSHCI_CQIS_REG_TEPS));
+
+	/*
+	 * A submission queue event does not complete a request. Clear
+	 * the queue level status so it cannot keep the controller
+	 * level status asserted, and report it. The timeout path
+	 * recovers a request the controller failed to fetch.
+	 */
+	sqis = ufshci_mmio_read_4_off(ctrlr, UFSHCI_MCQ_SQIS(hwq->sqisao));
+	if (sqis != 0) {
+		ufshci_printf(ctrlr,
+		    "queue %u submission queue event 0x%x\n", hwq->id, sqis);
+		ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_SQIS(hwq->sqisao),
+		    sqis);
+	}
 
 	/* The ring pointers are meaningless while the queue is down. */
 	if (hwq->recovery_state != RECOVERY_NONE)
