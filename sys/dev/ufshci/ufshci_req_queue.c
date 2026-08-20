@@ -832,7 +832,7 @@ ufshci_req_queue_submit_tracker(struct ufshci_req_queue *req_queue,
 	uint8_t slot_num = tr->slot_num;
 	int timeout;
 
-	hwq = req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q);
+	hwq = tr->hwq;
 
 	mtx_assert(&hwq->qlock, MA_OWNED);
 
@@ -912,13 +912,11 @@ ufshci_req_queue_submit_tracker(struct ufshci_req_queue *req_queue,
 
 static int
 _ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
-    struct ufshci_request *req)
+    struct ufshci_request *req, struct ufshci_hw_queue *hwq)
 {
-	struct ufshci_hw_queue *hwq;
 	struct ufshci_tracker *tr = NULL;
 	int error;
 
-	hwq = req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q);
 	mtx_assert(&hwq->qlock, MA_OWNED);
 
 	if (req_queue->ctrlr->is_failed)
@@ -981,12 +979,23 @@ ufshci_req_queue_submit_queued(struct ufshci_hw_queue *hwq)
 		if (req_queue->qops.reserve_slot(hwq, &tr, false) != 0)
 			break;
 		STAILQ_REMOVE_HEAD(&hwq->queued_req, stailq);
-		if (_ufshci_req_queue_submit_request(req_queue, req) != 0) {
+		if (_ufshci_req_queue_submit_request(req_queue, req, hwq) != 0) {
 			/* The failure path completes what is left here. */
 			STAILQ_INSERT_HEAD(&hwq->queued_req, req, stailq);
 			break;
 		}
 	}
+}
+
+/*
+ * Pick the hardware queue that carries this request.
+ * TODO: MCQs should use a separate Admin queue.
+ */
+static struct ufshci_hw_queue *
+ufshci_req_queue_select_hwq(struct ufshci_req_queue *req_queue,
+    struct ufshci_request *req __unused)
+{
+	return (req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q));
 }
 
 int
@@ -996,13 +1005,11 @@ ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 	struct ufshci_hw_queue *hwq;
 	uint32_t error;
 
-	/* TODO: MCQs should use a separate Admin queue. */
-
-	hwq = req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q);
+	hwq = ufshci_req_queue_select_hwq(req_queue, req);
 	KASSERT(hwq, ("There is no HW queue allocated."));
 
 	mtx_lock(&hwq->qlock);
-	error = _ufshci_req_queue_submit_request(req_queue, req);
+	error = _ufshci_req_queue_submit_request(req_queue, req, hwq);
 	mtx_unlock(&hwq->qlock);
 
 	return (error);
