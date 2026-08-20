@@ -483,6 +483,23 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 	if (error)
 		return (error);
 
+	if (ctrlr->enable_mcq) {
+		uint32_t max_io_queues;
+
+		/*
+		 * One controller queue belongs to the admin path. The
+		 * 8-bit task tag bounds the total slot count to 256,
+		 * so it also bounds the queue count.
+		 */
+		max_io_queues = min(mcq_maxq - 1,
+		    256 / UFSHCI_MCQ_ENTRIES - 1);
+		ctrlr->num_io_queues = min(ctrlr->num_io_queues,
+		    max_io_queues);
+	} else {
+		/* The single doorbell mode drives one I/O queue. */
+		ctrlr->num_io_queues = 1;
+	}
+
 	/* Allocate and initialize UTP Transfer Request List or SQ/CQ. */
 	error = ufshci_utr_req_queue_construct(ctrlr);
 	if (error)
@@ -737,11 +754,7 @@ ufshci_ctrlr_poll(struct ufshci_controller *ctrlr)
 	}
 }
 
-/*
- * Poll the single-vector interrupt case: num_io_queues will be 1 and
- * there's only a single vector. While we're polling, we mask further
- * interrupts in the controller.
- */
+/* Handle the single-vector case, where every queue shares one vector. */
 void
 ufshci_ctrlr_shared_handler(void *arg)
 {
