@@ -143,6 +143,18 @@ struct ufshci_qops {
 
 #define UFSHCI_SDB_Q 0 /* Queue number for a single doorbell queue */
 
+#define UFSHCI_MCQ_ADMIN_Q 0 /* Queue id of the MCQ admin queue */
+
+/*
+ * Map a CPU to an I/O queue the way nvme(4) does. CPU ids can be
+ * sparse, so divide by the highest id in use to keep the result
+ * inside the queue array.
+ */
+#define UFSHCI_QP(ctrlr, c) ((c) * (ctrlr)->num_io_queues / (mp_maxid + 1))
+
+/* Ring entries per MCQ hardware queue. The SQ and CQ rings are 1KiB each. */
+#define UFSHCI_MCQ_ENTRIES 32
+
 enum ufshci_recovery {
 	RECOVERY_NONE = 0, /* Normal operations */
 	RECOVERY_WAITING,  /* waiting for the reset to complete */
@@ -172,6 +184,10 @@ struct ufshci_hw_queue {
 	bus_dma_tag_t dma_tag_queue;
 	bus_dmamap_t queuemem_map;
 	bus_addr_t req_queue_addr;
+
+	/* MCQ mode: completion queue ring paired with the 'utrd' ring */
+	struct ufshci_completion_queue_entry *cqe;
+	bus_addr_t cq_queue_addr;
 
 	/* UTP command descriptor pool owned by this queue */
 	struct ufshci_utp_cmd_desc *ucd;
@@ -552,6 +568,15 @@ void ufshci_req_sdb_utr_clear_cpl_ntf(struct ufshci_controller *ctrlr,
     struct ufshci_tracker *tr);
 bool ufshci_req_sdb_process_cpl(struct ufshci_hw_queue *hwq);
 int ufshci_req_sdb_get_inflight_io(struct ufshci_controller *ctrlr);
+
+/* Request Multi-Circular Queue */
+int ufshci_req_mcq_construct(struct ufshci_controller *ctrlr,
+    struct ufshci_req_queue *req_queue, uint32_t num_entries,
+    bool is_task_mgmt);
+void ufshci_req_mcq_destroy(struct ufshci_controller *ctrlr,
+    struct ufshci_req_queue *req_queue);
+struct ufshci_hw_queue *ufshci_req_mcq_get_hw_queue(
+    struct ufshci_req_queue *req_queue, uint32_t qid);
 
 /* UIC Command */
 int ufshci_uic_power_mode_ready(struct ufshci_controller *ctrlr);

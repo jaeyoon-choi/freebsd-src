@@ -10,6 +10,7 @@ SRCS =	ufshci.c	\
 	ufshci_ctrlr_cmd.c	\
 	ufshci_uic_cmd.c	\
 	ufshci_req_queue.c	\
+	ufshci_req_mcq.c	\
 	ufshci_req_sdb.c	\
 	ufshci_sim.c		\
 	ufshci_sysctl.c		\
