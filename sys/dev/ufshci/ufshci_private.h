@@ -424,6 +424,16 @@ struct ufshci_controller {
 	bus_space_write_4((sc)->bus_tag, (sc)->bus_handle, \
 	    ufshci_mmio_offsetof(reg), val)
 
+/*
+ * The MCQ per-queue register banks live at offsets computed at run
+ * time, so they cannot be named through struct ufshci_registers.
+ */
+#define ufshci_mmio_read_4_off(sc, off) \
+	bus_space_read_4((sc)->bus_tag, (sc)->bus_handle, (off))
+
+#define ufshci_mmio_write_4_off(sc, off, val) \
+	bus_space_write_4((sc)->bus_tag, (sc)->bus_handle, (off), (val))
+
 #define ufshci_printf(ctrlr, fmt, args...) \
 	device_printf(ctrlr->dev, fmt, ##args)
 
