@@ -1,0 +1,1 @@
+[리뷰 주의 — 동작 전환점] 이 커밋부터 CAP.MCQS 컨트롤러는 기본으로 MCQ 모드로 attach. 회귀 시 hw.ufshci.use_mcq=0으로 현장에서 SDB 강제 가능. QEMU mcq=true/false 양쪽 스위트 통과 확인 필요.
