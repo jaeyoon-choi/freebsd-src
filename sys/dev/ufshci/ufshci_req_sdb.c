@@ -184,6 +184,7 @@ ufshci_req_sdb_construct(struct ufshci_controller *ctrlr,
 	 * of trackers are the same.
 	 */
 	req_queue->num_trackers = num_entries;
+	req_queue->num_q = 1;
 
 	/* Single Doorbell mode uses only one queue. (UFSHCI_SDB_Q = 0) */
 	req_queue->hwq = malloc(sizeof(struct ufshci_hw_queue), M_UFSHCI,

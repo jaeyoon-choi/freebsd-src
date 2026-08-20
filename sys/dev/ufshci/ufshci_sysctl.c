@@ -43,7 +43,7 @@ ufshci_sysctl_num_cmds(SYSCTL_HANDLER_ARGS)
 	num_cmds = ctrlr->task_mgmt_req_queue.hwq[UFSHCI_SDB_Q].num_cmds;
 
 	if (ctrlr->transfer_req_queue.hwq != NULL) {
-		for (i = 0; i < ctrlr->num_io_queues; i++)
+		for (i = 0; i < ctrlr->transfer_req_queue.num_q; i++)
 			num_cmds += ctrlr->transfer_req_queue.hwq[i].num_cmds;
 	}
 
@@ -61,7 +61,7 @@ ufshci_sysctl_num_intr_handler_calls(SYSCTL_HANDLER_ARGS)
 	    ctrlr->task_mgmt_req_queue.hwq[UFSHCI_SDB_Q].num_intr_handler_calls;
 
 	if (ctrlr->transfer_req_queue.hwq != NULL) {
-		for (i = 0; i < ctrlr->num_io_queues; i++)
+		for (i = 0; i < ctrlr->transfer_req_queue.num_q; i++)
 			num_intr_handler_calls += ctrlr->transfer_req_queue
 						      .hwq[i]
 						      .num_intr_handler_calls;
@@ -80,7 +80,7 @@ ufshci_sysctl_num_retries(SYSCTL_HANDLER_ARGS)
 	num_retries = ctrlr->task_mgmt_req_queue.hwq[UFSHCI_SDB_Q].num_retries;
 
 	if (ctrlr->transfer_req_queue.hwq != NULL) {
-		for (i = 0; i < ctrlr->num_io_queues; i++)
+		for (i = 0; i < ctrlr->transfer_req_queue.num_q; i++)
 			num_retries +=
 			    ctrlr->transfer_req_queue.hwq[i].num_retries;
 	}
@@ -99,7 +99,7 @@ ufshci_sysctl_num_failures(SYSCTL_HANDLER_ARGS)
 	    ctrlr->task_mgmt_req_queue.hwq[UFSHCI_SDB_Q].num_failures;
 
 	if (ctrlr->transfer_req_queue.hwq != NULL) {
-		for (i = 0; i < ctrlr->num_io_queues; i++)
+		for (i = 0; i < ctrlr->transfer_req_queue.num_q; i++)
 			num_failures +=
 			    ctrlr->transfer_req_queue.hwq[i].num_failures;
 	}
@@ -300,7 +300,7 @@ ufshci_sysctl_initialize_ctrlr(struct ufshci_controller *ctrlr)
 		    "UTP Transfer Request Queue (I/O Queue)");
 		ioq_list = SYSCTL_CHILDREN(ioq_tree);
 
-		for (i = 0; i < ctrlr->num_io_queues; i++) {
+		for (i = 0; i < ctrlr->transfer_req_queue.num_q; i++) {
 			snprintf(queue_name, QUEUE_NAME_LENGTH, "%d", i);
 			que_tree = SYSCTL_ADD_NODE(ctrlr_ctx, ioq_list,
 			    OID_AUTO, queue_name, CTLFLAG_RD | CTLFLAG_MPSAFE,
