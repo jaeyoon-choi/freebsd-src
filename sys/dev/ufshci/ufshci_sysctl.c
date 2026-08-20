@@ -177,7 +177,7 @@ ufshci_sysctl_initialize_queue(struct ufshci_hw_queue *hwq,
 	    CTLFLAG_RD, &hwq->num_retries, "Number of commands retried");
 	SYSCTL_ADD_QUAD(ctrlr_ctx, que_list, OID_AUTO, "num_failures",
 	    CTLFLAG_RD, &hwq->num_failures,
-	    "Number of commands ending in failure after all retries");
+	    "Number of retriable commands that ended in failure");
 
 	/* TODO: Implement num_ignored */
 	/* TODO: Implement recovery state */
@@ -320,7 +320,7 @@ ufshci_sysctl_initialize_ctrlr(struct ufshci_controller *ctrlr)
 	SYSCTL_ADD_PROC(ctrlr_ctx, ctrlr_list, OID_AUTO, "num_failures",
 	    CTLTYPE_S64 | CTLFLAG_RD | CTLFLAG_MPSAFE, ctrlr, 0,
 	    ufshci_sysctl_num_failures, "IU",
-	    "Number of commands ending in failure after all retries");
+	    "Number of retriable commands that ended in failure");
 
 	que_tree = SYSCTL_ADD_NODE(ctrlr_ctx, ctrlr_list, OID_AUTO, "utmrq",
 	    CTLFLAG_RD | CTLFLAG_MPSAFE, NULL,
