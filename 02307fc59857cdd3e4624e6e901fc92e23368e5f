@@ -1,0 +1,1 @@
+[리뷰 주의 — 리셋 semantics] QEMU 실측: HCE 리셋/큐 재생성이 hp/tp를 보존 → 포인터 0 가정 시 스테일 재fetch·스테일 CQE·이중완료(UAF 패닉 재현). SQHP/CQTP 채택 + 링 범위 마스킹으로 해결. 실HW 동작은 X Elite에서 재확인 필요.
