@@ -591,6 +591,10 @@ int ufshci_req_mcq_reserve_slot(struct ufshci_hw_queue *hwq,
     struct ufshci_tracker **tr);
 void ufshci_req_mcq_ring_doorbell(struct ufshci_controller *ctrlr,
     struct ufshci_tracker *tr);
+void ufshci_req_mcq_clear_cpl_ntf(struct ufshci_controller *ctrlr,
+    struct ufshci_tracker *tr);
+bool ufshci_req_mcq_process_cpl(struct ufshci_hw_queue *hwq);
+int ufshci_req_mcq_get_inflight_io(struct ufshci_controller *ctrlr);
 
 /* UIC Command */
 int ufshci_uic_power_mode_ready(struct ufshci_controller *ctrlr);
