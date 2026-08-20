@@ -216,6 +216,10 @@ ufshci_sysctl_initialize_ctrlr(struct ufshci_controller *ctrlr)
 	SYSCTL_ADD_UINT(ctrlr_ctx, ctrlr_list, OID_AUTO, "cap", CTLFLAG_RD,
 	    &ctrlr->cap, 0, "Host controller capabilities register value");
 
+	SYSCTL_ADD_UINT(ctrlr_ctx, ctrlr_list, OID_AUTO, "mcqcap", CTLFLAG_RD,
+	    &ctrlr->mcqcap, 0,
+	    "Multi-circular queue capability register value");
+
 	SYSCTL_ADD_BOOL(ctrlr_ctx, ctrlr_list, OID_AUTO, "wb_enabled",
 	    CTLFLAG_RD, &dev->is_wb_enabled, 0, "WriteBooster enable/disable");
 
