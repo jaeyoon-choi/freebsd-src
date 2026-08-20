@@ -15,153 +15,6 @@
 #include "ufshci_private.h"
 #include "ufshci_reg.h"
 
-static void
-ufshci_req_sdb_cmd_desc_destroy(struct ufshci_req_queue *req_queue)
-{
-	struct ufshci_hw_queue *hwq = &req_queue->hwq[UFSHCI_SDB_Q];
-	struct ufshci_tracker *tr;
-	int i;
-
-	if (req_queue->dma_tag_payload != NULL) {
-		for (i = 0; i < req_queue->num_trackers; i++) {
-			tr = hwq->act_tr[i];
-			if (tr->payload_dma_map != NULL)
-				bus_dmamap_destroy(req_queue->dma_tag_payload,
-				    tr->payload_dma_map);
-		}
-
-		bus_dma_tag_destroy(req_queue->dma_tag_payload);
-		req_queue->dma_tag_payload = NULL;
-	}
-
-	if (req_queue->ucd) {
-		bus_dmamap_unload(req_queue->dma_tag_ucd,
-		    req_queue->ucdmem_map);
-		bus_dmamem_free(req_queue->dma_tag_ucd, req_queue->ucd,
-		    req_queue->ucdmem_map);
-		req_queue->ucd = NULL;
-	}
-
-	if (req_queue->dma_tag_ucd) {
-		bus_dma_tag_destroy(req_queue->dma_tag_ucd);
-		req_queue->dma_tag_ucd = NULL;
-	}
-
-	free(req_queue->hwq->ucd_bus_addr, M_UFSHCI);
-	req_queue->hwq->ucd_bus_addr = NULL;
-}
-
-static void
-ufshci_ucd_map(void *arg, bus_dma_segment_t *seg, int nseg, int error)
-{
-	struct ufshci_hw_queue *hwq = arg;
-	int i;
-
-	if (error != 0) {
-		printf("ufshci: Failed to map UCD, error = %d\n", error);
-		return;
-	}
-
-	if (hwq->num_trackers != nseg) {
-		printf(
-		    "ufshci: Failed to map UCD, num_trackers = %d, nseg = %d\n",
-		    hwq->num_trackers, nseg);
-		return;
-	}
-
-	for (i = 0; i < nseg; i++) {
-		hwq->ucd_bus_addr[i] = seg[i].ds_addr;
-	}
-}
-
-static int
-ufshci_req_sdb_cmd_desc_construct(struct ufshci_req_queue *req_queue,
-    uint32_t num_entries, struct ufshci_controller *ctrlr)
-{
-	struct ufshci_hw_queue *hwq = &req_queue->hwq[UFSHCI_SDB_Q];
-	size_t ucd_allocsz, payload_allocsz;
-	uint8_t *ucdmem;
-	int i, error;
-
-	req_queue->hwq->ucd_bus_addr = malloc(sizeof(bus_addr_t) *
-		req_queue->num_trackers,
-	    M_UFSHCI, M_ZERO | M_NOWAIT);
-	if (req_queue->hwq->ucd_bus_addr == NULL)
-		return (ENOMEM);
-
-	/*
-	 * Each component must be page aligned, and individual PRP lists
-	 * cannot cross a page boundary.
-	 */
-	ucd_allocsz = num_entries * sizeof(struct ufshci_utp_cmd_desc);
-	ucd_allocsz = roundup2(ucd_allocsz, ctrlr->page_size);
-	payload_allocsz = num_entries * ctrlr->max_xfer_size;
-
-	/*
-	 * Allocate physical memory for UTP Command Descriptor (UCD)
-	 * Note: UFSHCI UCD format is restricted to 128-byte alignment.
-	 */
-	error = bus_dma_tag_create(bus_get_dma_tag(ctrlr->dev), 128, 0,
-	    BUS_SPACE_MAXADDR, BUS_SPACE_MAXADDR, NULL, NULL, ucd_allocsz,
-	    howmany(ucd_allocsz, sizeof(struct ufshci_utp_cmd_desc)),
-	    sizeof(struct ufshci_utp_cmd_desc), 0, NULL, NULL,
-	    &req_queue->dma_tag_ucd);
-	if (error != 0) {
-		ufshci_printf(ctrlr, "request cmd desc tag create failed %d\n",
-		    error);
-		return (error);
-	}
-
-	error = bus_dmamem_alloc(req_queue->dma_tag_ucd, (void **)&ucdmem,
-	    BUS_DMA_COHERENT | BUS_DMA_NOWAIT, &req_queue->ucdmem_map);
-	if (error != 0) {
-		ufshci_printf(ctrlr, "failed to allocate cmd desc memory\n");
-		return (error);
-	}
-
-	error = bus_dmamap_load(req_queue->dma_tag_ucd, req_queue->ucdmem_map,
-	    ucdmem, ucd_allocsz, ufshci_ucd_map, hwq, 0);
-	if (error != 0) {
-		ufshci_printf(ctrlr, "failed to load cmd desc memory\n");
-		bus_dmamem_free(req_queue->dma_tag_ucd, ucdmem,
-		    req_queue->ucdmem_map);
-		return (error);
-	}
-
-	req_queue->ucd = (struct ufshci_utp_cmd_desc *)ucdmem;
-
-	/*
-	 * Allocate physical memory for PRDT
-	 * Note: UFSHCI PRDT format is restricted to 8-byte alignment.
-	 */
-	error = bus_dma_tag_create(bus_get_dma_tag(ctrlr->dev), 8,
-	    ctrlr->page_size, BUS_SPACE_MAXADDR, BUS_SPACE_MAXADDR, NULL, NULL,
-	    payload_allocsz, howmany(payload_allocsz, ctrlr->page_size) + 1,
-	    ctrlr->page_size, 0, NULL, NULL, &req_queue->dma_tag_payload);
-	if (error != 0) {
-		ufshci_printf(ctrlr, "request prdt tag create failed %d\n",
-		    error);
-		return (error);
-	}
-
-	for (i = 0; i < req_queue->num_trackers; i++) {
-		error = bus_dmamap_create(req_queue->dma_tag_payload, 0,
-		    &hwq->act_tr[i]->payload_dma_map);
-		if (error != 0) {
-			ufshci_printf(ctrlr,
-			    "request payload map create failed %d\n", error);
-			return (error);
-		}
-
-		hwq->act_tr[i]->ucd = (struct ufshci_utp_cmd_desc *)ucdmem;
-		hwq->act_tr[i]->ucd_bus_addr = hwq->ucd_bus_addr[i];
-
-		ucdmem += sizeof(struct ufshci_utp_cmd_desc);
-	}
-
-	return (0);
-}
-
 int
 ufshci_req_sdb_construct(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue, uint32_t num_entries, bool is_task_mgmt)
@@ -292,7 +145,7 @@ ufshci_req_sdb_construct(struct ufshci_controller *ctrlr,
 		 * UTP Transfer Request (UTR) requires memory for a separate
 		 * command in addition to the queue.
 		 */
-		error = ufshci_req_sdb_cmd_desc_construct(req_queue,
+		error = ufshci_req_queue_cmd_desc_construct(req_queue, hwq,
 		    num_entries, ctrlr);
 		if (error != 0) {
 			ufshci_printf(ctrlr,
@@ -330,8 +183,9 @@ ufshci_req_sdb_destroy(struct ufshci_controller *ctrlr,
 	callout_drain(&hwq->timer);
 
 	if (hwq->act_tr != NULL) {
-		if (!req_queue->is_task_mgmt)
-			ufshci_req_sdb_cmd_desc_destroy(req_queue);
+		if (!req_queue->is_task_mgmt) {
+			ufshci_req_queue_cmd_desc_destroy(req_queue, hwq);
+		}
 
 		for (i = 0; i < req_queue->num_trackers; i++)
 			free(hwq->act_tr[i], M_UFSHCI);
