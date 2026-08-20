@@ -295,19 +295,35 @@ ufshci_sysctl_initialize_ctrlr(struct ufshci_controller *ctrlr)
 	 * of the sysctls to diagnose things.
 	 */
 	if (ctrlr->transfer_req_queue.hwq != NULL) {
+		int first_io_q = 0;
+
+		/* In MCQ mode, queue 0 is the admin queue. */
+		if (ctrlr->transfer_req_queue.queue_mode ==
+		    UFSHCI_Q_MODE_MCQ) {
+			que_tree = SYSCTL_ADD_NODE(ctrlr_ctx, ctrlr_list,
+			    OID_AUTO, "adminq", CTLFLAG_RD | CTLFLAG_MPSAFE,
+			    NULL, "Admin Queue");
+			ufshci_sysctl_initialize_queue(
+			    &ctrlr->transfer_req_queue
+				 .hwq[UFSHCI_MCQ_ADMIN_Q],
+			    ctrlr_ctx, que_tree);
+			first_io_q = 1;
+		}
+
 		ioq_tree = SYSCTL_ADD_NODE(ctrlr_ctx, ctrlr_list, OID_AUTO,
 		    "ioq", CTLFLAG_RD | CTLFLAG_MPSAFE, NULL,
 		    "UTP Transfer Request Queue (I/O Queue)");
 		ioq_list = SYSCTL_CHILDREN(ioq_tree);
 
-		for (i = 0; i < ctrlr->transfer_req_queue.num_q; i++) {
+		for (i = 0; i < ctrlr->transfer_req_queue.num_q - first_io_q;
+		    i++) {
 			snprintf(queue_name, QUEUE_NAME_LENGTH, "%d", i);
 			que_tree = SYSCTL_ADD_NODE(ctrlr_ctx, ioq_list,
 			    OID_AUTO, queue_name, CTLFLAG_RD | CTLFLAG_MPSAFE,
 			    NULL, "IO Queue");
 			ufshci_sysctl_initialize_queue(
-			    &ctrlr->transfer_req_queue.hwq[i], ctrlr_ctx,
-			    que_tree);
+			    &ctrlr->transfer_req_queue.hwq[first_io_q + i],
+			    ctrlr_ctx, que_tree);
 		}
 	}
 }
