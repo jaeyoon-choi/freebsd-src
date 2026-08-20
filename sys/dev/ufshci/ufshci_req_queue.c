@@ -142,12 +142,15 @@ ufshci_utr_req_queue_enable(struct ufshci_controller *ctrlr)
 void
 ufshci_req_queue_resume(struct ufshci_req_queue *req_queue)
 {
-	struct ufshci_hw_queue *hwq = req_queue->qops.get_hw_queue(req_queue,
-	    UFSHCI_SDB_Q);
+	struct ufshci_hw_queue *hwq;
+	uint32_t qid;
 
-	mtx_lock(&hwq->qlock);
-	ufshci_req_queue_submit_queued(hwq);
-	mtx_unlock(&hwq->qlock);
+	for (qid = 0; qid < req_queue->num_q; qid++) {
+		hwq = req_queue->qops.get_hw_queue(req_queue, qid);
+		mtx_lock(&hwq->qlock);
+		ufshci_req_queue_submit_queued(hwq);
+		mtx_unlock(&hwq->qlock);
+	}
 }
 
 /*
@@ -158,17 +161,20 @@ void
 ufshci_req_queue_stop_watchdog(struct ufshci_req_queue *req_queue)
 {
 	struct ufshci_hw_queue *hwq;
+	uint32_t qid;
 
 	/* Attach may fail before the queue is set up. */
 	if (req_queue->hwq == NULL)
 		return;
 
-	hwq = req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q);
+	for (qid = 0; qid < req_queue->num_q; qid++) {
+		hwq = req_queue->qops.get_hw_queue(req_queue, qid);
 
-	mtx_lock(&hwq->recovery_lock);
-	hwq->timer_armed = false;
-	mtx_unlock(&hwq->recovery_lock);
-	callout_drain(&hwq->timer);
+		mtx_lock(&hwq->recovery_lock);
+		hwq->timer_armed = false;
+		mtx_unlock(&hwq->recovery_lock);
+		callout_drain(&hwq->timer);
+	}
 }
 
 static bool
@@ -285,15 +291,12 @@ ufshci_req_queue_complete_aborted_hwq(struct ufshci_hw_queue *hwq)
 	mtx_unlock(&hwq->qlock);
 }
 
-void
-ufshci_req_queue_fail(struct ufshci_controller *ctrlr,
-    struct ufshci_req_queue *req_queue)
+static void
+ufshci_req_queue_fail_hwq(struct ufshci_hw_queue *hwq)
 {
-	struct ufshci_hw_queue *hwq = req_queue->qops.get_hw_queue(req_queue,
-	    UFSHCI_SDB_Q);
 	struct ufshci_tracker *tr;
 	struct ufshci_request *req;
-	int i;
+	uint32_t i;
 
 	if (!mtx_initialized(&hwq->qlock))
 		return;
@@ -339,6 +342,19 @@ ufshci_req_queue_fail(struct ufshci_controller *ctrlr,
 	}
 
 	mtx_unlock(&hwq->qlock);
+}
+
+void
+ufshci_req_queue_fail(struct ufshci_controller *ctrlr __unused,
+    struct ufshci_req_queue *req_queue)
+{
+	struct ufshci_hw_queue *hwq;
+	uint32_t qid;
+
+	for (qid = 0; qid < req_queue->num_q; qid++) {
+		hwq = req_queue->qops.get_hw_queue(req_queue, qid);
+		ufshci_req_queue_fail_hwq(hwq);
+	}
 }
 
 void
@@ -436,13 +452,16 @@ bool
 ufshci_req_queue_process_completions(struct ufshci_req_queue *req_queue)
 {
 	struct ufshci_hw_queue *hwq;
-	bool done;
+	uint32_t qid;
+	bool done = false;
 
-	hwq = req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q);
+	for (qid = 0; qid < req_queue->num_q; qid++) {
+		hwq = req_queue->qops.get_hw_queue(req_queue, qid);
 
-	mtx_lock(&hwq->recovery_lock);
-	done = req_queue->qops.process_cpl(hwq);
-	mtx_unlock(&hwq->recovery_lock);
+		mtx_lock(&hwq->recovery_lock);
+		done |= req_queue->qops.process_cpl(hwq);
+		mtx_unlock(&hwq->recovery_lock);
+	}
 
 	return (done);
 }
