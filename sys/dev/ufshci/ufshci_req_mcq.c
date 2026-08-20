@@ -439,6 +439,53 @@ ufshci_req_mcq_enable(struct ufshci_controller *ctrlr,
 	return (0);
 }
 
+int
+ufshci_req_mcq_reserve_slot(struct ufshci_hw_queue *hwq,
+    struct ufshci_tracker **tr)
+{
+	struct ufshci_controller *ctrlr = hwq->ctrlr;
+	uint32_t sq_head;
+
+	mtx_assert(&hwq->qlock, MA_OWNED);
+
+	/*
+	 * The ring is full when the next tail would catch up with the
+	 * head. Refresh the head from the controller before giving up.
+	 */
+	if ((hwq->sq_tail + 1) % hwq->num_entries == hwq->sq_head) {
+		sq_head = (ufshci_mmio_read_4_off(ctrlr,
+			       UFSHCI_MCQ_SQHP(hwq->sqdao)) /
+			      sizeof(struct ufshci_utp_xfer_req_desc)) %
+		    hwq->num_entries;
+		hwq->sq_head = sq_head;
+		if ((hwq->sq_tail + 1) % hwq->num_entries == sq_head)
+			return (EBUSY);
+	}
+
+	*tr = TAILQ_FIRST(&hwq->free_tr);
+	if (*tr == NULL)
+		return (EBUSY);
+	(*tr)->hwq = hwq;
+
+	return (0);
+}
+
+void
+ufshci_req_mcq_ring_doorbell(struct ufshci_controller *ctrlr,
+    struct ufshci_tracker *tr)
+{
+	struct ufshci_hw_queue *hwq = tr->hwq;
+
+	mtx_assert(&hwq->qlock, MA_OWNED);
+
+	/* The tail pointer register takes a byte offset. */
+	hwq->sq_tail = (hwq->sq_tail + 1) % hwq->num_entries;
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_SQTP(hwq->sqdao),
+	    hwq->sq_tail * sizeof(struct ufshci_utp_xfer_req_desc));
+
+	hwq->num_cmds++;
+}
+
 void
 ufshci_req_mcq_disable(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue)

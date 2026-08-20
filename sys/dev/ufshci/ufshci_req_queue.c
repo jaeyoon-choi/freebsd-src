@@ -897,6 +897,14 @@ ufshci_req_queue_submit_tracker(struct ufshci_req_queue *req_queue,
 		    ufshci_req_queue_prepare_prdt(tr) != 0)
 			return;
 
+		/*
+		 * In MCQ mode the descriptor goes into the SQ ring at
+		 * the tail. The tracker slot number only names the
+		 * tracker.
+		 */
+		if (req_queue->queue_mode == UFSHCI_Q_MODE_MCQ)
+			slot_num = hwq->sq_tail;
+
 		/* Prepare UTP Transfer Request Descriptor. */
 		ucd_paddr = tr->ucd_bus_addr;
 		ufshci_req_queue_fill_utr_descriptor(&tr->hwq->utrd[slot_num],

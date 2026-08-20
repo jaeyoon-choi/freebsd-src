@@ -587,6 +587,10 @@ int ufshci_req_mcq_enable(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue);
 void ufshci_req_mcq_disable(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue);
+int ufshci_req_mcq_reserve_slot(struct ufshci_hw_queue *hwq,
+    struct ufshci_tracker **tr);
+void ufshci_req_mcq_ring_doorbell(struct ufshci_controller *ctrlr,
+    struct ufshci_tracker *tr);
 
 /* UIC Command */
 int ufshci_uic_power_mode_ready(struct ufshci_controller *ctrlr);
