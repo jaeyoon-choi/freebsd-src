@@ -384,6 +384,7 @@ struct ufshci_controller {
 
 	/* Controller capacity */
 	uint32_t cap;
+	uint32_t mcqcap;
 
 	/* Page size and log2(page_size) - 12 that we're currently using */
 	uint32_t page_size;
@@ -408,6 +409,8 @@ struct ufshci_controller {
 	struct ufshci_req_queue transfer_req_queue;
 	bool is_single_db_supported;
 	bool is_mcq_supported;
+	/* True when the driver runs the controller in MCQ mode. */
+	bool enable_mcq;
 
 	/* UFS Interconnect Layer (UIC) */
 	struct mtx uic_cmd_lock;
