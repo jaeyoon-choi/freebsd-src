@@ -126,12 +126,12 @@ struct ufshci_qops {
 	void (*destroy)(struct ufshci_controller *ctrlr,
 	    struct ufshci_req_queue *req_queue);
 	struct ufshci_hw_queue *(*get_hw_queue)(
-	    struct ufshci_req_queue *req_queue);
+	    struct ufshci_req_queue *req_queue, uint32_t qid);
 	int (*enable)(struct ufshci_controller *ctrlr,
 	    struct ufshci_req_queue *req_queue);
 	void (*disable)(struct ufshci_controller *ctrlr,
 	    struct ufshci_req_queue *req_queue);
-	int (*reserve_slot)(struct ufshci_req_queue *req_queue,
+	int (*reserve_slot)(struct ufshci_hw_queue *hwq,
 	    struct ufshci_tracker **tr, bool admin);
 	void (*ring_doorbell)(struct ufshci_controller *ctrlr,
 	    struct ufshci_tracker *tr);
@@ -141,7 +141,7 @@ struct ufshci_qops {
 	    struct ufshci_tracker *tr);
 	void (*clear_cpl_ntf)(struct ufshci_controller *ctrlr,
 	    struct ufshci_tracker *tr);
-	bool (*process_cpl)(struct ufshci_req_queue *req_queue);
+	bool (*process_cpl)(struct ufshci_hw_queue *hwq);
 	int (*get_inflight_io)(struct ufshci_controller *ctrlr);
 };
 
@@ -531,12 +531,12 @@ int ufshci_req_sdb_construct(struct ufshci_controller *ctrlr,
 void ufshci_req_sdb_destroy(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue);
 struct ufshci_hw_queue *ufshci_req_sdb_get_hw_queue(
-    struct ufshci_req_queue *req_queue);
+    struct ufshci_req_queue *req_queue, uint32_t qid);
 void ufshci_req_sdb_disable(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue);
 int ufshci_req_sdb_enable(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue);
-int ufshci_req_sdb_reserve_slot(struct ufshci_req_queue *req_queue,
+int ufshci_req_sdb_reserve_slot(struct ufshci_hw_queue *hwq,
     struct ufshci_tracker **tr, bool admin);
 void ufshci_req_sdb_utmr_ring_doorbell(struct ufshci_controller *ctrlr,
     struct ufshci_tracker *tr);
@@ -552,7 +552,7 @@ void ufshci_req_sdb_utmr_clear_cpl_ntf(struct ufshci_controller *ctrlr,
     struct ufshci_tracker *tr);
 void ufshci_req_sdb_utr_clear_cpl_ntf(struct ufshci_controller *ctrlr,
     struct ufshci_tracker *tr);
-bool ufshci_req_sdb_process_cpl(struct ufshci_req_queue *req_queue);
+bool ufshci_req_sdb_process_cpl(struct ufshci_hw_queue *hwq);
 int ufshci_req_sdb_get_inflight_io(struct ufshci_controller *ctrlr);
 
 /* UIC Command */
