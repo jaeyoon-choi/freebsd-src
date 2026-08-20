@@ -542,10 +542,17 @@ ufshci_req_mcq_process_cpl(struct ufshci_hw_queue *hwq)
 
 	/*
 	 * Clear the interrupt status first. A completion that arrives
-	 * during the scan raises it again, so no event is lost.
+	 * during the scan raises it again, so no event is lost. This
+	 * also runs for a queue in recovery. The caller has already
+	 * cleared the controller level status, so a queue that keeps
+	 * its own status set would raise the interrupt again at once.
 	 */
 	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQIS(hwq->cqisao),
 	    UFSHCIM(UFSHCI_CQIS_REG_TEPS));
+
+	/* The ring pointers are meaningless while the queue is down. */
+	if (hwq->recovery_state != RECOVERY_NONE)
+		return (false);
 
 	bus_dmamap_sync(hwq->dma_tag_queue, hwq->queuemem_map,
 	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
