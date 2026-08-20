@@ -411,6 +411,16 @@ struct ufshci_controller {
 	uint32_t max_rx_lanes;
 
 	uint32_t is_failed;
+
+	/*
+	 * Debug aids. The submit path drops the doorbell for this many
+	 * requests, so they time out and drive the recovery path. I/O
+	 * and admin requests are counted apart: a dropped admin request
+	 * stalls the driver's own bring-up, which is what a dead link
+	 * does on real hardware.
+	 */
+	uint32_t debug_drop_ios;
+	uint32_t debug_drop_admins;
 };
 
 #define ufshci_mmio_offsetof(reg) offsetof(struct ufshci_registers, reg)

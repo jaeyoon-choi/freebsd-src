@@ -681,6 +681,25 @@ ufshci_req_queue_timeout(void *arg)
 }
 
 /*
+ * Debug aid. Tell whether this request is one the test asked to
+ * drop. I/O and admin requests draw on separate counts, so a test
+ * can stall the driver's own bring-up without touching I/O.
+ */
+static bool
+ufshci_req_queue_debug_drop(struct ufshci_controller *ctrlr,
+    struct ufshci_request *req)
+{
+	uint32_t *count;
+
+	count = req->is_admin ? &ctrlr->debug_drop_admins :
+	    &ctrlr->debug_drop_ios;
+	if (__predict_true(*count == 0))
+		return (false);
+	(*count)--;
+	return (true);
+}
+
+/*
  * Submit the tracker to the hardware.
  */
 static void
@@ -751,6 +770,18 @@ ufshci_req_queue_submit_tracker(struct ufshci_req_queue *req_queue,
 	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 
 	tr->slot_state = UFSHCI_SLOT_STATE_SCHEDULED;
+
+	/*
+	 * Debug aid. Leave the request on the queue without telling
+	 * the controller about it. The watchdog then finds it and
+	 * runs the recovery path.
+	 */
+	if (__predict_false(ufshci_req_queue_debug_drop(ctrlr, req))) {
+		ufshci_printf(ctrlr,
+		    "debug: dropped the doorbell for task tag %u\n",
+		    req->request_upiu.header.task_tag);
+		return;
+	}
 
 	/* Ring the doorbell */
 	req_queue->qops.ring_doorbell(ctrlr, tr);
