@@ -589,52 +589,62 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 	retriable = req->is_admin && !req_queue->ctrlr->is_failed;
 	retry = error && retriable &&
 	    req->retries < req_queue->ctrlr->retry_count;
-	if (retry)
-		hwq->num_retries++;
-	if (error && req->retries >= req_queue->ctrlr->retry_count && retriable)
-		hwq->num_failures++;
 
 	KASSERT(tr->req, ("there is no request assigned to the tracker\n"));
 	KASSERT(cpl.response_upiu.header.task_tag ==
 		req->request_upiu.header.task_tag,
 	    ("response task_tag does not match request task_tag\n"));
 
-	if (!retry) {
-		if (req->payload_valid) {
-			bus_dmamap_sync(hwq->dma_tag_payload,
-			    tr->payload_dma_map,
-			    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
-		}
-		/* Copy response from the command descriptor */
-		if (req->cb_fn)
-			req->cb_fn(req->cb_arg, &cpl, error);
-	}
-
 	mtx_lock(&hwq->qlock);
 
 	/* Clear the UTRL Completion Notification register */
 	req_queue->qops.clear_cpl_ntf(req_queue->ctrlr, tr);
 
+	/*
+	 * A retry skips the submit path's recovery check, and a queue in
+	 * recovery loses the doorbell, so fail the request instead.
+	 */
+	if (retry && hwq->recovery_state != RECOVERY_NONE)
+		retry = false;
+
 	if (retry) {
+		hwq->num_retries++;
 		req->retries++;
 		ufshci_req_queue_submit_tracker(req_queue, tr,
 		    req->data_direction);
-	} else {
-		if (req->payload_valid) {
-			bus_dmamap_unload(hwq->dma_tag_payload,
-			    tr->payload_dma_map);
-		}
-
-		/* Clear tracker */
-		ufshci_free_request(req);
-		tr->req = NULL;
-		tr->slot_state = UFSHCI_SLOT_STATE_FREE;
-
-		TAILQ_REMOVE(&hwq->outstanding_tr, tr, tailq);
-		TAILQ_INSERT_HEAD(&hwq->free_tr, tr, tailq);
+		mtx_unlock(&hwq->qlock);
+		return;
 	}
 
-	mtx_unlock(&tr->hwq->qlock);
+	if (error && retriable)
+		hwq->num_failures++;
+
+	mtx_unlock(&hwq->qlock);
+
+	if (req->payload_valid) {
+		bus_dmamap_sync(hwq->dma_tag_payload, tr->payload_dma_map,
+		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
+	}
+	/* Copy response from the command descriptor */
+	if (req->cb_fn)
+		req->cb_fn(req->cb_arg, &cpl, error);
+
+	mtx_lock(&hwq->qlock);
+
+	if (req->payload_valid) {
+		bus_dmamap_unload(hwq->dma_tag_payload,
+		    tr->payload_dma_map);
+	}
+
+	/* Clear tracker */
+	ufshci_free_request(req);
+	tr->req = NULL;
+	tr->slot_state = UFSHCI_SLOT_STATE_FREE;
+
+	TAILQ_REMOVE(&hwq->outstanding_tr, tr, tailq);
+	TAILQ_INSERT_HEAD(&hwq->free_tr, tr, tailq);
+
+	mtx_unlock(&hwq->qlock);
 }
 
 bool
@@ -1132,6 +1142,14 @@ _ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 
 	if (req_queue->ctrlr->is_failed)
 		return (ENXIO);
+
+	/*
+	 * A queue in recovery loses its doorbell write when the enable
+	 * path reprograms the ring pointers. Bounce the request. The
+	 * caller probes another queue or asks CAM to retry.
+	 */
+	if (hwq->recovery_state != RECOVERY_NONE)
+		return (EBUSY);
 
 	/*
 	 * A full ring returns EBUSY. The caller falls back to another
