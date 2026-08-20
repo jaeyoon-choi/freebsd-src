@@ -363,6 +363,8 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 {
 	uint32_t ver, cap, ahit;
 	uint32_t timeout_period, retry_count;
+	uint32_t mcq_maxq = 0;
+	int use_mcq;
 	int error;
 
 	ctrlr->device_init_timeout_in_ms = UFSHCI_DEVICE_INIT_TIMEOUT_MS;
@@ -401,6 +403,39 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 		ufshci_printf(ctrlr,
 		    "hs_series is missing from the device table\n");
 		return (ENXIO);
+	}
+
+	/* Without the single doorbell, MCQ is the only mode left. */
+	use_mcq = 1;
+	TUNABLE_INT_FETCH("hw.ufshci.use_mcq", &use_mcq);
+	ctrlr->enable_mcq = (ctrlr->major_version >= 4 &&
+	    ctrlr->is_mcq_supported && use_mcq != 0) ||
+	    !ctrlr->is_single_db_supported;
+
+	/* The raw MCQCAP is what tells why MCQ was or was not taken. */
+	if (ctrlr->major_version >= 4)
+		ctrlr->mcqcap = ufshci_mmio_read_4(ctrlr, mcqcap);
+
+	if (ctrlr->enable_mcq) {
+		uint32_t mcqcap = ctrlr->mcqcap;
+
+		/* MAXQ is a 0's based value. */
+		mcq_maxq = UFSHCIV(UFSHCI_MCQCAP_REG_MAXQ, mcqcap) + 1;
+
+		/* MCQ needs the admin queue and at least one I/O queue. */
+		if (mcq_maxq < 2) {
+			if (!ctrlr->is_single_db_supported) {
+				ufshci_printf(ctrlr,
+				    "MCQ supports only %u queues\n",
+				    mcq_maxq);
+				return (ENXIO);
+			}
+			ufshci_printf(ctrlr,
+			    "MCQ supports only %u queues, "
+			    "using the single doorbell\n",
+			    mcq_maxq);
+			ctrlr->enable_mcq = false;
+		}
 	}
 
 	/*
@@ -729,6 +764,8 @@ ufshci_reg_dump(struct ufshci_controller *ctrlr)
 	UFSHCI_DUMP_REG(ctrlr, uecn);
 	UFSHCI_DUMP_REG(ctrlr, uect);
 	UFSHCI_DUMP_REG(ctrlr, uecdme);
+	UFSHCI_DUMP_REG(ctrlr, config);
+	UFSHCI_DUMP_REG(ctrlr, mcqconfig);
 
 	ufshci_printf(ctrlr, "========================================\n");
 }
