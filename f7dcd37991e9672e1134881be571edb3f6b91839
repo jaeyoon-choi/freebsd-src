@@ -1,0 +1,1 @@
+[리뷰 주의 — 복구 semantics] disable에서 claim, enable pass-2에서 claim된 것만 완료. 스캔과 abort의 이중 완료 레이스(GPF 재현됨) 수정. ctrlr_fail 경로의 동일 계열 레이스는 기존 유지(별건).
