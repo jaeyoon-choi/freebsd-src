@@ -194,6 +194,12 @@ struct ufshci_hw_queue {
 	struct ufshci_completion_queue_entry *cqe;
 	bus_addr_t cq_queue_addr;
 
+	/* MCQ mode: runtime register offsets read from the config bank */
+	uint32_t sqdao;
+	uint32_t sqisao;
+	uint32_t cqdao;
+	uint32_t cqisao;
+
 	/* UTP command descriptor pool owned by this queue */
 	struct ufshci_utp_cmd_desc *ucd;
 	bus_dma_tag_t dma_tag_ucd;
@@ -599,6 +605,8 @@ bool ufshci_req_sdb_process_cpl(struct ufshci_hw_queue *hwq);
 int ufshci_req_sdb_get_inflight_io(struct ufshci_controller *ctrlr);
 
 /* Request Multi-Circular Queue */
+int ufshci_req_mcq_check_layout(struct ufshci_controller *ctrlr,
+    uint32_t num_q);
 int ufshci_req_mcq_construct(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue, uint32_t num_entries,
     bool is_task_mgmt);
@@ -606,6 +614,10 @@ void ufshci_req_mcq_destroy(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue);
 struct ufshci_hw_queue *ufshci_req_mcq_get_hw_queue(
     struct ufshci_req_queue *req_queue, uint32_t qid);
+int ufshci_req_mcq_enable(struct ufshci_controller *ctrlr,
+    struct ufshci_req_queue *req_queue);
+void ufshci_req_mcq_disable(struct ufshci_controller *ctrlr,
+    struct ufshci_req_queue *req_queue);
 
 /* UIC Command */
 int ufshci_uic_power_mode_ready(struct ufshci_controller *ctrlr);

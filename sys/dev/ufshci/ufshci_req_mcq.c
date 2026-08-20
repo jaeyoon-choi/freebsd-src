@@ -250,3 +250,273 @@ ufshci_req_mcq_get_hw_queue(struct ufshci_req_queue *req_queue, uint32_t qid)
 	KASSERT(qid < req_queue->num_q, ("Invalid queue id"));
 	return (&req_queue->hwq[qid]);
 }
+
+/*
+ * A runtime offset must point past the standard registers and keep the
+ * two registers behind it in the window.
+ */
+static bool
+ufshci_req_mcq_rt_offset_ok(struct ufshci_controller *ctrlr, uint32_t off)
+{
+	return (off >= sizeof(struct ufshci_registers) &&
+	    off <= rman_get_size(ctrlr->resource) - 8);
+}
+
+/*
+ * Check where the controller puts the queue registers before anything
+ * is written through them. The driver does not program the runtime
+ * offsets, so they must already be valid after a controller reset.
+ */
+int
+ufshci_req_mcq_check_layout(struct ufshci_controller *ctrlr, uint32_t num_q)
+{
+	uint32_t regs[4];
+	uint32_t qid, i;
+	uint8_t qcfgptr;
+
+	qcfgptr = UFSHCIV(UFSHCI_MCQCAP_REG_QCFGPTR, ctrlr->mcqcap);
+
+	/* A pointer below 2 puts the banks on the standard registers. */
+	if (UFSHCI_MCQ_QCFG(qcfgptr, 0) < sizeof(struct ufshci_registers)) {
+		ufshci_printf(ctrlr,
+		    "MCQ queue config pointer %u overlaps the standard "
+		    "registers\n", qcfgptr);
+		return (ENXIO);
+	}
+	if (UFSHCI_MCQ_QCFG(qcfgptr, num_q - 1) + UFSHCI_MCQ_QCFG_SIZE >
+	    rman_get_size(ctrlr->resource)) {
+		ufshci_printf(ctrlr,
+		    "MCQ queue config pointer %u does not fit the register "
+		    "window\n", qcfgptr);
+		return (ENXIO);
+	}
+
+	for (qid = 0; qid < num_q; qid++) {
+		regs[0] = UFSHCI_MCQ_SQDAO(qcfgptr, qid);
+		regs[1] = UFSHCI_MCQ_SQISAO(qcfgptr, qid);
+		regs[2] = UFSHCI_MCQ_CQDAO(qcfgptr, qid);
+		regs[3] = UFSHCI_MCQ_CQISAO(qcfgptr, qid);
+		for (i = 0; i < nitems(regs); i++) {
+			if (!ufshci_req_mcq_rt_offset_ok(ctrlr,
+			    ufshci_mmio_read_4_off(ctrlr, regs[i]))) {
+				ufshci_printf(ctrlr,
+				    "MCQ queue %u reports bad runtime register "
+				    "offsets\n", qid);
+				return (ENXIO);
+			}
+		}
+	}
+
+	return (0);
+}
+
+static int
+ufshci_req_mcq_enable_hwq(struct ufshci_controller *ctrlr,
+    struct ufshci_hw_queue *hwq, uint8_t qcfgptr)
+{
+	uint32_t qid = hwq->id;
+	uint32_t sqattr, cqattr, size;
+	uint32_t sqdao, sqisao, cqdao, cqisao;
+	uint32_t sqhp, cqtp;
+	int error = 0;
+
+	mtx_lock(&hwq->recovery_lock);
+	mtx_lock(&hwq->qlock);
+
+	/*
+	 * Disable the queues first. The controller registers a queue
+	 * when its enable bit rises from zero to one, so a re-enable
+	 * must pass through zero to pick up the ring addresses again.
+	 */
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_SQATTR(qcfgptr, qid), 0);
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQATTR(qcfgptr, qid), 0);
+
+	/* Program the ring base addresses. */
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQLBA(qcfgptr, qid),
+	    hwq->cq_queue_addr & 0xffffffff);
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQUBA(qcfgptr, qid),
+	    hwq->cq_queue_addr >> 32);
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_SQLBA(qcfgptr, qid),
+	    hwq->req_queue_addr & 0xffffffff);
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_SQUBA(qcfgptr, qid),
+	    hwq->req_queue_addr >> 32);
+
+	/* The controller reports where its runtime registers live. */
+	sqdao = ufshci_mmio_read_4_off(ctrlr, UFSHCI_MCQ_SQDAO(qcfgptr, qid));
+	sqisao = ufshci_mmio_read_4_off(ctrlr,
+	    UFSHCI_MCQ_SQISAO(qcfgptr, qid));
+	cqdao = ufshci_mmio_read_4_off(ctrlr, UFSHCI_MCQ_CQDAO(qcfgptr, qid));
+	cqisao = ufshci_mmio_read_4_off(ctrlr,
+	    UFSHCI_MCQ_CQISAO(qcfgptr, qid));
+	if (!ufshci_req_mcq_rt_offset_ok(ctrlr, sqdao) ||
+	    !ufshci_req_mcq_rt_offset_ok(ctrlr, sqisao) ||
+	    !ufshci_req_mcq_rt_offset_ok(ctrlr, cqdao) ||
+	    !ufshci_req_mcq_rt_offset_ok(ctrlr, cqisao)) {
+		/* Zero offsets mark a queue that has no registers to touch. */
+		hwq->sqdao = hwq->sqisao = hwq->cqdao = hwq->cqisao = 0;
+		ufshci_printf(ctrlr,
+		    "queue %u reports bad runtime register offsets\n", qid);
+		error = ENXIO;
+		goto out;
+	}
+	hwq->sqdao = sqdao;
+	hwq->sqisao = sqisao;
+	hwq->cqdao = cqdao;
+	hwq->cqisao = cqisao;
+
+	/* Clear a stale completion interrupt and enable it. */
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQIS(hwq->cqisao),
+	    UFSHCIM(UFSHCI_CQIS_REG_TEPS));
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQIE(hwq->cqisao),
+	    UFSHCIM(UFSHCI_CQIE_REG_TEPE));
+
+	/*
+	 * Enable the queues. The CQ must exist before the SQ that
+	 * points at it. SIZE is a 0's based value in dword units.
+	 */
+	size = (hwq->num_entries *
+	    sizeof(struct ufshci_completion_queue_entry) /
+	    sizeof(uint32_t)) - 1;
+	cqattr = UFSHCIM(UFSHCI_CQATTR_REG_CQEN) |
+	    UFSHCIF(UFSHCI_CQATTR_REG_SIZE, size);
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQATTR(qcfgptr, qid),
+	    cqattr);
+
+	size = (hwq->num_entries * sizeof(struct ufshci_utp_xfer_req_desc) /
+	    sizeof(uint32_t)) - 1;
+	sqattr = UFSHCIM(UFSHCI_SQATTR_REG_SQEN) |
+	    UFSHCIF(UFSHCI_SQATTR_REG_CQID, qid) |
+	    UFSHCIF(UFSHCI_SQATTR_REG_SIZE, size);
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_SQATTR(qcfgptr, qid),
+	    sqattr);
+
+	/* The queues must report themselves as enabled. */
+	if (!(ufshci_mmio_read_4_off(ctrlr, UFSHCI_MCQ_CQATTR(qcfgptr, qid)) &
+		UFSHCIM(UFSHCI_CQATTR_REG_CQEN)) ||
+	    !(ufshci_mmio_read_4_off(ctrlr, UFSHCI_MCQ_SQATTR(qcfgptr, qid)) &
+		UFSHCIM(UFSHCI_SQATTR_REG_SQEN))) {
+		ufshci_printf(ctrlr, "queue %u did not come up\n", qid);
+		error = ENXIO;
+		goto out;
+	}
+
+	/*
+	 * A controller may keep its ring pointers across a reset.
+	 * Adopt them instead of assuming zero. Move the tails and
+	 * heads together so both rings start out empty, and everything
+	 * stale on them stays invisible. The pointer writes need the
+	 * queues enabled, so this must come last.
+	 */
+	sqhp = ufshci_mmio_read_4_off(ctrlr, UFSHCI_MCQ_SQHP(hwq->sqdao));
+	hwq->sq_head = hwq->sq_tail = (sqhp /
+	    sizeof(struct ufshci_utp_xfer_req_desc)) % hwq->num_entries;
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_SQTP(hwq->sqdao),
+	    hwq->sq_tail * sizeof(struct ufshci_utp_xfer_req_desc));
+
+	cqtp = ufshci_mmio_read_4_off(ctrlr, UFSHCI_MCQ_CQTP(hwq->cqdao));
+	hwq->cq_head = (cqtp /
+	    sizeof(struct ufshci_completion_queue_entry)) % hwq->num_entries;
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQHP(hwq->cqdao),
+	    hwq->cq_head * sizeof(struct ufshci_completion_queue_entry));
+
+	KASSERT(!ctrlr->is_failed, ("Enabling a failed hwq\n"));
+
+	hwq->recovery_state = RECOVERY_NONE;
+
+out:
+	mtx_unlock(&hwq->qlock);
+	mtx_unlock(&hwq->recovery_lock);
+	return (error);
+}
+
+/* Without the single doorbell, the tunable cannot help. */
+static void
+ufshci_req_mcq_enable_hint(struct ufshci_controller *ctrlr)
+{
+	if (ctrlr->is_single_db_supported)
+		ufshci_printf(ctrlr, "MCQ setup failed, set "
+		    "hw.ufshci.use_mcq=0 to use the single doorbell mode\n");
+	else
+		ufshci_printf(ctrlr, "MCQ setup failed\n");
+}
+
+int
+ufshci_req_mcq_enable(struct ufshci_controller *ctrlr,
+    struct ufshci_req_queue *req_queue)
+{
+	uint32_t config, mcqconfig;
+	uint32_t max_active_cmds;
+	uint32_t qid;
+	uint8_t qcfgptr;
+	int error;
+
+	/* Select the MCQ queue type. */
+	config = ufshci_mmio_read_4(ctrlr, config);
+	config |= UFSHCIM(UFSHCI_CONFIG_REG_QT);
+	ufshci_mmio_write_4(ctrlr, config, config);
+
+	/*
+	 * Let the device hold as many active commands as the
+	 * controller supports. Both fields are 0's based values.
+	 */
+	max_active_cmds = UFSHCIV(UFSHCI_CAP_REG_NUTRS, ctrlr->cap) + 1;
+	mcqconfig = ufshci_mmio_read_4(ctrlr, mcqconfig);
+	mcqconfig &= ~UFSHCIM(UFSHCI_MCQCONFIG_REG_MAC);
+	mcqconfig |= UFSHCIF(UFSHCI_MCQCONFIG_REG_MAC, max_active_cmds - 1);
+	ufshci_mmio_write_4(ctrlr, mcqconfig, mcqconfig);
+
+	/* A bad layout would send the bank writes to other registers. */
+	error = ufshci_req_mcq_check_layout(ctrlr, req_queue->num_q);
+	if (error != 0) {
+		ufshci_req_mcq_enable_hint(ctrlr);
+		return (error);
+	}
+
+	qcfgptr = UFSHCIV(UFSHCI_MCQCAP_REG_QCFGPTR, ctrlr->mcqcap);
+	for (qid = 0; qid < req_queue->num_q; qid++) {
+		error = ufshci_req_mcq_enable_hwq(ctrlr,
+		    &req_queue->hwq[qid], qcfgptr);
+		if (error != 0) {
+			/*
+			 * Put the queues that already came up back into
+			 * recovery. Every reader of recovery_state, such as
+			 * the watchdog, then treats them as down.
+			 */
+			while (qid-- > 0) {
+				mtx_lock(&req_queue->hwq[qid].recovery_lock);
+				req_queue->hwq[qid].recovery_state =
+				    RECOVERY_WAITING;
+				mtx_unlock(&req_queue->hwq[qid].recovery_lock);
+			}
+			ufshci_req_mcq_enable_hint(ctrlr);
+			return (error);
+		}
+	}
+
+	return (0);
+}
+
+void
+ufshci_req_mcq_disable(struct ufshci_controller *ctrlr,
+    struct ufshci_req_queue *req_queue)
+{
+	struct ufshci_hw_queue *hwq;
+	struct ufshci_tracker *tr, *tr_temp;
+	uint32_t qid;
+
+	for (qid = 0; qid < req_queue->num_q; qid++) {
+		hwq = &req_queue->hwq[qid];
+
+		mtx_lock(&hwq->recovery_lock);
+		mtx_lock(&hwq->qlock);
+
+		hwq->recovery_state = RECOVERY_WAITING;
+		TAILQ_FOREACH_SAFE(tr, &hwq->outstanding_tr, tailq,
+		    tr_temp) {
+			tr->deadline = SBT_MAX;
+		}
+
+		mtx_unlock(&hwq->qlock);
+		mtx_unlock(&hwq->recovery_lock);
+	}
+}
