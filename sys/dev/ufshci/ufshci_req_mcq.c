@@ -48,6 +48,8 @@ ufshci_req_mcq_construct(struct ufshci_controller *ctrlr,
 	/*
 	 * A CQ reads as empty when its head equals its tail, so it holds
 	 * one completion less than its entries. Each request makes one.
+	 * The completion path hands consumed entries back before it
+	 * frees a tracker, so the bound holds while trackers get reused.
 	 */
 	req_queue->num_trackers = num_entries - 1;
 	/* Queue 0 is the admin queue. The I/O queues follow it. */
@@ -363,6 +365,7 @@ ufshci_req_mcq_enable_hwq(struct ufshci_controller *ctrlr,
 	    hwq->cq_head * sizeof(struct ufshci_completion_queue_entry));
 
 	KASSERT(!ctrlr->is_failed, ("Enabling a failed hwq\n"));
+
 	hwq->recovery_state = RECOVERY_NONE;
 
 out:
@@ -473,6 +476,149 @@ ufshci_req_mcq_ring_doorbell(struct ufshci_controller *ctrlr,
 	    hwq->sq_tail * sizeof(struct ufshci_utp_xfer_req_desc));
 
 	hwq->num_cmds++;
+}
+
+/*
+ * Map a completion queue entry back to its tracker through the
+ * physical address of the UTP command descriptor.
+ */
+static struct ufshci_tracker *
+ufshci_req_mcq_cqe_to_tracker(struct ufshci_hw_queue *hwq,
+    struct ufshci_completion_queue_entry *cqe)
+{
+	bus_addr_t ucd_addr;
+	uint32_t i;
+
+	ucd_addr = cqe->utp_cmd_desc_base_addr &
+	    UFSHCI_CQE_UCD_BASE_ADDR_MASK;
+
+	for (i = 0; i < hwq->num_trackers; i++) {
+		if (hwq->ucd_bus_addr[i] == ucd_addr)
+			return (hwq->act_tr[i]);
+	}
+
+	return (NULL);
+}
+
+bool
+ufshci_req_mcq_process_cpl(struct ufshci_hw_queue *hwq)
+{
+	struct ufshci_controller *ctrlr = hwq->ctrlr;
+	struct ufshci_completion_queue_entry *cqe;
+	struct ufshci_tracker *tr;
+	struct ufshci_tracker *done_tr[UFSHCI_MCQ_ENTRIES];
+	uint32_t cq_tail, ndone, i;
+	bool completed;
+
+	mtx_assert(&hwq->recovery_lock, MA_OWNED);
+
+	hwq->num_intr_handler_calls++;
+
+	/*
+	 * A queue that never came up has no register offsets. Offset
+	 * zero names the capability register, so touching it here
+	 * would write to a read-only register.
+	 */
+	if (hwq->cqisao == 0 || hwq->sqisao == 0)
+		return (false);
+
+	/*
+	 * Clear the interrupt status first. A completion that arrives
+	 * during the scan raises it again, so no event is lost.
+	 */
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQIS(hwq->cqisao),
+	    UFSHCIM(UFSHCI_CQIS_REG_TEPS));
+
+	/*
+	 * The tail pointer register carries a byte offset. Keep it
+	 * inside the ring. A value the loop below can never reach
+	 * would spin it forever. Sync after the read, so the entries
+	 * up to that tail are visible.
+	 */
+	cq_tail = (ufshci_mmio_read_4_off(ctrlr,
+		       UFSHCI_MCQ_CQTP(hwq->cqdao)) /
+		      sizeof(struct ufshci_completion_queue_entry)) %
+	    hwq->num_entries;
+	bus_dmamap_sync(hwq->dma_tag_queue, hwq->queuemem_map,
+	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
+
+	/*
+	 * Claim the completed slots first and complete them only after
+	 * the consumed entries went back to the controller. A tracker
+	 * freed here could be reused and complete again before the head
+	 * pointer moves, and the ring holds one entry per tracker only
+	 * while every consumed entry has been handed back.
+	 */
+	ndone = 0;
+	while (hwq->cq_head != cq_tail) {
+		cqe = &hwq->cqe[hwq->cq_head];
+		tr = ufshci_req_mcq_cqe_to_tracker(hwq, cqe);
+		hwq->cq_head = (hwq->cq_head + 1) % hwq->num_entries;
+
+		if (tr == NULL) {
+			ufshci_printf(ctrlr,
+			    "queue %u completed an unknown descriptor "
+			    "address\n", hwq->id);
+			continue;
+		}
+
+		/*
+		 * Claim the slot under the lock. The failure and reset
+		 * paths complete scheduled slots too.
+		 */
+		mtx_lock(&hwq->qlock);
+		completed = tr->slot_state == UFSHCI_SLOT_STATE_SCHEDULED;
+		if (completed)
+			tr->slot_state = UFSHCI_SLOT_STATE_COMPLETING;
+		mtx_unlock(&hwq->qlock);
+
+		if (completed) {
+			/* The entry goes back below, so read it now. */
+			tr->ocs = cqe->overall_command_status;
+			KASSERT(ndone < nitems(done_tr),
+			    ("more completions than trackers"));
+			done_tr[ndone++] = tr;
+		}
+
+		/* Pick up the entries pushed during the scan. */
+		if (hwq->cq_head == cq_tail) {
+			cq_tail = (ufshci_mmio_read_4_off(ctrlr,
+				       UFSHCI_MCQ_CQTP(hwq->cqdao)) /
+				      sizeof(struct
+					  ufshci_completion_queue_entry)) %
+			    hwq->num_entries;
+			bus_dmamap_sync(hwq->dma_tag_queue, hwq->queuemem_map,
+			    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
+		}
+	}
+
+	/* Hand the consumed entries back to the controller. */
+	ufshci_mmio_write_4_off(ctrlr, UFSHCI_MCQ_CQHP(hwq->cqdao),
+	    hwq->cq_head * sizeof(struct ufshci_completion_queue_entry));
+
+	for (i = 0; i < ndone; i++)
+		ufshci_req_queue_complete_tracker(done_tr[i]);
+
+	return (ndone != 0);
+}
+
+void
+ufshci_req_mcq_clear_cpl_ntf(struct ufshci_controller *ctrlr,
+    struct ufshci_tracker *tr)
+{
+	/*
+	 * NOP
+	 * MCQ has no completion notification register. The CQ head
+	 * pointer update in the completion scan takes its place.
+	 */
+}
+
+int
+ufshci_req_mcq_get_inflight_io(struct ufshci_controller *ctrlr)
+{
+	/* TODO: Implement inflight io */
+
+	return (0);
 }
 
 void
