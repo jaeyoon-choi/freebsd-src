@@ -26,7 +26,6 @@ static const struct ufshci_qops sdb_utmr_qops = {
 	.enable = ufshci_req_sdb_enable,
 	.disable = ufshci_req_sdb_disable,
 	.reserve_slot = ufshci_req_sdb_reserve_slot,
-	.reserve_admin_slot = ufshci_req_sdb_reserve_slot,
 	.ring_doorbell = ufshci_req_sdb_utmr_ring_doorbell,
 	.is_doorbell_cleared = ufshci_req_sdb_utmr_is_doorbell_cleared,
 	.clear_cpl_ntf = ufshci_req_sdb_utmr_clear_cpl_ntf,
@@ -41,7 +40,6 @@ static const struct ufshci_qops sdb_utr_qops = {
 	.enable = ufshci_req_sdb_enable,
 	.disable = ufshci_req_sdb_disable,
 	.reserve_slot = ufshci_req_sdb_reserve_slot,
-	.reserve_admin_slot = ufshci_req_sdb_reserve_slot,
 	.ring_doorbell = ufshci_req_sdb_utr_ring_doorbell,
 	.is_doorbell_cleared = ufshci_req_sdb_utr_is_doorbell_cleared,
 	.clear_cpl_ntf = ufshci_req_sdb_utr_clear_cpl_ntf,
@@ -200,7 +198,8 @@ void
 ufshci_req_queue_fail(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue)
 {
-	struct ufshci_hw_queue *hwq = req_queue->qops.get_hw_queue(req_queue);
+	struct ufshci_hw_queue *hwq = req_queue->qops.get_hw_queue(req_queue,
+	    UFSHCI_SDB_Q);
 	struct ufshci_tracker *tr;
 	int i;
 
@@ -328,10 +327,10 @@ ufshci_req_queue_process_completions(struct ufshci_req_queue *req_queue)
 	struct ufshci_hw_queue *hwq;
 	bool done;
 
-	hwq = req_queue->qops.get_hw_queue(req_queue);
+	hwq = req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q);
 
 	mtx_lock(&hwq->recovery_lock);
-	done = req_queue->qops.process_cpl(req_queue);
+	done = req_queue->qops.process_cpl(hwq);
 	mtx_unlock(&hwq->recovery_lock);
 
 	return (done);
@@ -587,7 +586,7 @@ ufshci_req_queue_timeout(void *arg)
 		 * deadline has passed. Poll the competions as a last-ditch
 		 * effort in case an interrupt has been missed.
 		 */
-		hwq->req_queue->qops.process_cpl(hwq->req_queue);
+		hwq->req_queue->qops.process_cpl(hwq);
 
 		/*
 		 * Now that we've run the ISR, re-rheck to see if there's any
@@ -695,7 +694,7 @@ ufshci_req_queue_submit_tracker(struct ufshci_req_queue *req_queue,
 	uint8_t slot_num = tr->slot_num;
 	int timeout;
 
-	hwq = req_queue->qops.get_hw_queue(req_queue);
+	hwq = req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q);
 
 	mtx_assert(&hwq->qlock, MA_OWNED);
 
@@ -760,15 +759,17 @@ static int
 _ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
     struct ufshci_request *req)
 {
+	struct ufshci_hw_queue *hwq;
 	struct ufshci_tracker *tr = NULL;
 	int error;
 
-	mtx_assert(&req_queue->qops.get_hw_queue(req_queue)->qlock, MA_OWNED);
+	hwq = req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q);
+	mtx_assert(&hwq->qlock, MA_OWNED);
 
 	if (req_queue->ctrlr->is_failed)
 		return (ENXIO);
 
-	error = req_queue->qops.reserve_slot(req_queue, &tr);
+	error = req_queue->qops.reserve_slot(hwq, &tr);
 	if (error != 0) {
 		ufshci_printf(req_queue->ctrlr, "Failed to get tracker");
 		return (error);
@@ -804,7 +805,7 @@ ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 
 	/* TODO: MCQs should use a separate Admin queue. */
 
-	hwq = req_queue->qops.get_hw_queue(req_queue);
+	hwq = req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q);
 	KASSERT(hwq, ("There is no HW queue allocated."));
 
 	mtx_lock(&hwq->qlock);
