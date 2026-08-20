@@ -485,17 +485,20 @@ ufshci_req_queue_fail_hwq(struct ufshci_hw_queue *hwq)
 		 * A slot in UFSHCI_SLOT_STATE_RESERVED is visible here
 		 * only while its submit thread is failing a PRDT setup.
 		 * That thread completes the request, so leave the slot
-		 * alone.
+		 * alone. A slot the disable path claimed belongs here
+		 * too. The reset never finished, so nothing else will
+		 * return it.
 		 */
-		if (tr->slot_state != UFSHCI_SLOT_STATE_SCHEDULED)
+		if (tr->slot_state != UFSHCI_SLOT_STATE_SCHEDULED &&
+		    tr->slot_state != UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING)
 			continue;
 
 		/*
-		 * Claim the tracker under the lock. The completion
-		 * scan only completes SCHEDULED slots, so it will
-		 * skip this one while the lock is dropped.
+		 * Claim the tracker under the lock. Every other walker
+		 * skips a slot in this state, so the tracker cannot
+		 * complete twice while the lock is dropped.
 		 */
-		tr->slot_state = UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING;
+		tr->slot_state = UFSHCI_SLOT_STATE_COMPLETING;
 		mtx_unlock(&hwq->qlock);
 		ufshci_req_queue_manual_complete_tracker(tr,
 		    UFSHCI_DESC_ABORTED,
