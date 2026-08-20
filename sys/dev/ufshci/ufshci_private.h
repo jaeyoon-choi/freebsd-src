@@ -159,6 +159,9 @@ struct ufshci_qops {
 /* Ring entries per MCQ hardware queue. The SQ and CQ rings are 1KiB each. */
 #define UFSHCI_MCQ_ENTRIES 32
 
+/* How many times one interrupt scans the MCQ queues. */
+#define UFSHCI_MCQ_EVENT_SCANS 4
+
 enum ufshci_recovery {
 	RECOVERY_NONE = 0, /* Normal operations */
 	RECOVERY_WAITING,  /* waiting for the reset to complete */
