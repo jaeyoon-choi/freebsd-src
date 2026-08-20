@@ -10,6 +10,8 @@
 #include <sys/conf.h>
 #include <sys/domainset.h>
 #include <sys/module.h>
+#include <sys/proc.h>
+#include <sys/smp.h>
 
 #include <cam/scsi/scsi_all.h>
 
@@ -397,6 +399,29 @@ ufshci_req_queue_complete_aborted_hwq(struct ufshci_hw_queue *hwq)
 	mtx_unlock(&hwq->qlock);
 }
 
+/* Find the tracker of a polled command that is still on the controller. */
+static struct ufshci_tracker *
+ufshci_req_queue_find_polled(struct ufshci_hw_queue *hwq,
+    struct ufshci_completion_poll_status *status)
+{
+	struct ufshci_tracker *tr;
+	int i;
+
+	mtx_assert(&hwq->qlock, MA_OWNED);
+
+	for (i = 0; i < hwq->num_trackers; i++) {
+		tr = hwq->act_tr[i];
+
+		if (tr->req == NULL || tr->req->cb_arg != status)
+			continue;
+		if (tr->slot_state == UFSHCI_SLOT_STATE_SCHEDULED ||
+		    tr->slot_state == UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING)
+			return (tr);
+	}
+
+	return (NULL);
+}
+
 /*
  * Take back a polled command that never completed, so a late completion
  * cannot write to the caller's stack. Returns 0 when it was reclaimed,
@@ -407,30 +432,26 @@ int
 ufshci_req_queue_reclaim_polled(struct ufshci_req_queue *req_queue,
     struct ufshci_completion_poll_status *status)
 {
-	struct ufshci_hw_queue *hwq = req_queue->qops.get_hw_queue(req_queue,
-	    UFSHCI_SDB_Q);
+	struct ufshci_hw_queue *hwq;
 	struct ufshci_tracker *tr = NULL;
 	struct ufshci_request *req;
 	bool cleared;
-	int i;
+	int q;
 
-	mtx_lock(&hwq->qlock);
-
-	for (i = 0; i < req_queue->num_trackers; i++) {
-		tr = hwq->act_tr[i];
-
-		if (tr->req == NULL || tr->req->cb_arg != status)
-			continue;
-		if (tr->slot_state == UFSHCI_SLOT_STATE_SCHEDULED)
+	/* A polled I/O command can sit on any hardware queue. */
+	for (q = 0; q < req_queue->num_q; q++) {
+		hwq = req_queue->qops.get_hw_queue(req_queue, q);
+		mtx_lock(&hwq->qlock);
+		tr = ufshci_req_queue_find_polled(hwq, status);
+		if (tr != NULL)
 			break;
-		if (tr->slot_state == UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING) {
-			mtx_unlock(&hwq->qlock);
-			return (EBUSY);
-		}
-	}
-	if (i == req_queue->num_trackers) {
 		mtx_unlock(&hwq->qlock);
+	}
+	if (tr == NULL)
 		return (EINPROGRESS);
+	if (tr->slot_state == UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING) {
+		mtx_unlock(&hwq->qlock);
+		return (EBUSY);
 	}
 
 	/* Keep every other path away while the slot is cleared. */
@@ -1124,11 +1145,13 @@ _ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 	if (req_queue->ctrlr->is_failed)
 		return (ENXIO);
 
+	/*
+	 * A full ring returns EBUSY. The caller falls back to another
+	 * queue or asks CAM to retry, so do not log it.
+	 */
 	error = req_queue->qops.reserve_slot(hwq, &tr, req->is_admin);
-	if (error != 0) {
-		ufshci_printf(req_queue->ctrlr, "Failed to get tracker");
+	if (error != 0)
 		return (error);
-	}
 	KASSERT(tr, ("There is no tracker allocated."));
 
 	if (tr->slot_state == UFSHCI_SLOT_STATE_RESERVED ||
@@ -1155,15 +1178,25 @@ _ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 	return (0);
 }
 
-/*
- * Pick the hardware queue that carries this request.
- * TODO: MCQs should use a separate Admin queue.
- */
+/* Pick the hardware queue that carries this request. */
 static struct ufshci_hw_queue *
 ufshci_req_queue_select_hwq(struct ufshci_req_queue *req_queue,
-    struct ufshci_request *req __unused)
+    struct ufshci_request *req)
 {
-	return (req_queue->qops.get_hw_queue(req_queue, UFSHCI_SDB_Q));
+	struct ufshci_controller *ctrlr = req_queue->ctrlr;
+	uint32_t qid;
+
+	if (req_queue->queue_mode != UFSHCI_Q_MODE_MCQ) {
+		qid = UFSHCI_SDB_Q;
+	} else if (req->is_admin) {
+		/* Admin requests own queue 0. */
+		qid = UFSHCI_MCQ_ADMIN_Q;
+	} else {
+		/* Spread the I/O requests over the queues by CPU. */
+		qid = 1 + UFSHCI_QP(ctrlr, curcpu);
+	}
+
+	return (req_queue->qops.get_hw_queue(req_queue, qid));
 }
 
 int
@@ -1179,6 +1212,33 @@ ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 	mtx_lock(&hwq->qlock);
 	error = _ufshci_req_queue_submit_request(req_queue, req, hwq);
 	mtx_unlock(&hwq->qlock);
+
+	/*
+	 * A burst from one CPU can fill its own ring while the others
+	 * have room. Probe the other I/O queues before asking CAM to
+	 * retry.
+	 */
+	if (error == EBUSY && req_queue->queue_mode == UFSHCI_Q_MODE_MCQ &&
+	    !req->is_admin) {
+		uint32_t first_qid, qid;
+
+		first_qid = hwq->id;
+		qid = first_qid;
+		for (;;) {
+			if (++qid >= req_queue->num_q)
+				qid = UFSHCI_MCQ_ADMIN_Q + 1;
+			if (qid == first_qid)
+				break;
+
+			hwq = req_queue->qops.get_hw_queue(req_queue, qid);
+			mtx_lock(&hwq->qlock);
+			error = _ufshci_req_queue_submit_request(req_queue,
+			    req, hwq);
+			mtx_unlock(&hwq->qlock);
+			if (error != EBUSY)
+				break;
+		}
+	}
 
 	return (error);
 }
