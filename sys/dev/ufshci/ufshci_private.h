@@ -191,7 +191,6 @@ struct ufshci_hw_queue {
 	uint32_t sq_tail; /* MCQ mode */
 	uint32_t cq_head; /* MCQ mode */
 
-	uint32_t phase;
 	int64_t num_cmds;
 	int64_t num_intr_handler_calls;
 	int64_t num_retries;
