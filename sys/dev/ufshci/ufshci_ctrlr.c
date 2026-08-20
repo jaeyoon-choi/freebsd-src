@@ -351,6 +351,7 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 {
 	uint32_t ver, cap, ahit;
 	uint32_t timeout_period, retry_count;
+	int use_mcq;
 	int error;
 
 	ctrlr->device_init_timeout_in_ms = UFSHCI_DEVICE_INIT_TIMEOUT_MS;
@@ -386,6 +387,41 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 	}
 	if (!(ctrlr->is_single_db_supported || ctrlr->is_mcq_supported))
 		return (ENXIO);
+
+	/*
+	 * Use MCQ when the controller supports it. A controller with
+	 * broken capability fields cannot prove its MCQ support, so it
+	 * stays on the single doorbell unless the tunable turns MCQ on.
+	 * A controller without the single doorbell always uses MCQ.
+	 */
+	use_mcq = (ctrlr->quirks & UFSHCI_QUIRK_BROKEN_LSDBS_MCQS_CAP) ? 0 : 1;
+	TUNABLE_INT_FETCH("hw.ufshci.use_mcq", &use_mcq);
+	ctrlr->enable_mcq = (ctrlr->major_version >= 4 &&
+	    ctrlr->is_mcq_supported && use_mcq != 0) ||
+	    !ctrlr->is_single_db_supported;
+
+	if (ctrlr->enable_mcq) {
+		uint32_t mcqcap;
+
+		mcqcap = ufshci_mmio_read_4(ctrlr, mcqcap);
+		/* MAXQ is a 0's based value. */
+		ctrlr->mcq_maxq = UFSHCIV(UFSHCI_MCQCAP_REG_MAXQ, mcqcap) + 1;
+
+		/* MCQ needs the admin queue and at least one I/O queue. */
+		if (ctrlr->mcq_maxq < 2) {
+			if (!ctrlr->is_single_db_supported) {
+				ufshci_printf(ctrlr,
+				    "MCQ supports only %u queues\n",
+				    ctrlr->mcq_maxq);
+				return (ENXIO);
+			}
+			ufshci_printf(ctrlr,
+			    "MCQ supports only %u queues, "
+			    "using the single doorbell\n",
+			    ctrlr->mcq_maxq);
+			ctrlr->enable_mcq = false;
+		}
+	}
 
 	/*
 	 * The maximum transfer size supported by UFSHCI spec is 65535 * 256 KiB
@@ -690,6 +726,8 @@ ufshci_reg_dump(struct ufshci_controller *ctrlr)
 	UFSHCI_DUMP_REG(ctrlr, uecn);
 	UFSHCI_DUMP_REG(ctrlr, uect);
 	UFSHCI_DUMP_REG(ctrlr, uecdme);
+	UFSHCI_DUMP_REG(ctrlr, config);
+	UFSHCI_DUMP_REG(ctrlr, mcqconfig);
 
 	ufshci_printf(ctrlr, "========================================\n");
 }
