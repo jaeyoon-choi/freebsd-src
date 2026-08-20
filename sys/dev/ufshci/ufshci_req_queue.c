@@ -1121,8 +1121,16 @@ _ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 	    tr->slot_state == UFSHCI_SLOT_STATE_SCHEDULED)
 		return (EBUSY);
 
-	/* Set the task_tag value to slot_num for traceability. */
-	req->request_upiu.header.task_tag = tr->slot_num;
+	/*
+	 * The device tells outstanding commands apart by task tag, and
+	 * an abort names its target by it, so the tag must be unique
+	 * across every hardware queue. The field is 8 bits wide, which
+	 * bounds the queue count.
+	 */
+	KASSERT(hwq->id * hwq->num_entries + tr->slot_num <= UINT8_MAX,
+	    ("task tag does not fit in its field"));
+	req->request_upiu.header.task_tag = hwq->id * hwq->num_entries +
+	    tr->slot_num;
 
 	tr->slot_state = UFSHCI_SLOT_STATE_RESERVED;
 	tr->response_size = req->response_size;
