@@ -467,6 +467,176 @@ _Static_assert(__offsetof(struct ufshci_registers, mcqconfig) == 0x380,
 #define UFSHCI_UICCMDARG3_REG_ARG3_SHIFT (0)
 #define UFSHCI_UICCMDARG3_REG_ARG3_MASK	 (0xFFFFFFFF)
 
+/*
+ * UFSHCI 4.1, section 5.9.1, Offset 300h: CONFIG
+ * Global Configuration
+ */
+#define UFSHCI_CONFIG_REG_QT_SHIFT (0)
+#define UFSHCI_CONFIG_REG_QT_MASK  (0x1)
+
+/*
+ * UFSHCI 4.1, section 5.9.2, Offset 380h: MCQCONFIG
+ * MCQueue Config Register
+ */
+#define UFSHCI_MCQCONFIG_REG_ARB_SHIFT (0)
+#define UFSHCI_MCQCONFIG_REG_ARB_MASK  (0x3)
+#define UFSHCI_MCQCONFIG_REG_MAC_SHIFT (8)
+#define UFSHCI_MCQCONFIG_REG_MAC_MASK  (0x1FF)
+
+/*
+ * UFSHCI 4.1, section 5.9.3, "MCQ Queue Configuration Registers"
+ * Each queue owns a 0x40-byte configuration register bank at
+ * MCQCAP.QCFGPTR * 0x200 + qid * 0x40.
+ */
+#define UFSHCI_MCQ_QCFG_SIZE 0x40
+#define UFSHCI_MCQ_QCFG(qcfgptr, qid) \
+	((uint32_t)(qcfgptr) * 0x200 + (uint32_t)(qid) * UFSHCI_MCQ_QCFG_SIZE)
+#define UFSHCI_MCQ_SQATTR(qcfgptr, qid) (UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x00)
+#define UFSHCI_MCQ_SQLBA(qcfgptr, qid)	(UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x04)
+#define UFSHCI_MCQ_SQUBA(qcfgptr, qid)	(UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x08)
+#define UFSHCI_MCQ_SQDAO(qcfgptr, qid)	(UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x0c)
+#define UFSHCI_MCQ_SQISAO(qcfgptr, qid) (UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x10)
+#define UFSHCI_MCQ_SQCFG(qcfgptr, qid)	(UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x14)
+#define UFSHCI_MCQ_CQATTR(qcfgptr, qid) (UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x20)
+#define UFSHCI_MCQ_CQLBA(qcfgptr, qid)	(UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x24)
+#define UFSHCI_MCQ_CQUBA(qcfgptr, qid)	(UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x28)
+#define UFSHCI_MCQ_CQDAO(qcfgptr, qid)	(UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x2c)
+#define UFSHCI_MCQ_CQISAO(qcfgptr, qid) (UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x30)
+#define UFSHCI_MCQ_CQCFG(qcfgptr, qid)	(UFSHCI_MCQ_QCFG(qcfgptr, qid) + 0x34)
+
+/*
+ * UFSHCI 4.1, section 5.9.6, "MCQ Operation and Runtime Registers"
+ * The offsets are relative to the values the controller reports in
+ * SQDAO, SQISAO, CQDAO, and CQISAO.
+ */
+#define UFSHCI_MCQ_SQHP(sqdao)	   ((sqdao) + 0x00)
+#define UFSHCI_MCQ_SQTP(sqdao)	   ((sqdao) + 0x04)
+#define UFSHCI_MCQ_SQRTC(sqdao)	   ((sqdao) + 0x08)
+#define UFSHCI_MCQ_SQCTI(sqdao)	   ((sqdao) + 0x0c)
+#define UFSHCI_MCQ_SQRTS(sqdao)	   ((sqdao) + 0x10)
+#define UFSHCI_MCQ_SQIS(sqisao)	   ((sqisao) + 0x00)
+#define UFSHCI_MCQ_SQIE(sqisao)	   ((sqisao) + 0x04)
+#define UFSHCI_MCQ_CQHP(cqdao)	   ((cqdao) + 0x00)
+#define UFSHCI_MCQ_CQTP(cqdao)	   ((cqdao) + 0x04)
+#define UFSHCI_MCQ_CQIS(cqisao)	   ((cqisao) + 0x00)
+#define UFSHCI_MCQ_CQIE(cqisao)	   ((cqisao) + 0x04)
+#define UFSHCI_MCQ_MCQIACR(cqisao) ((cqisao) + 0x08)
+
+/*
+ * UFSHCI 4.1, section 5.9.4.1, SQATTR
+ * Submission Queue Attribute
+ * SIZE is a 0's based value in dword units.
+ */
+#define UFSHCI_SQATTR_REG_SIZE_SHIFT (0)
+#define UFSHCI_SQATTR_REG_SIZE_MASK  (0xFFFF)
+#define UFSHCI_SQATTR_REG_CQID_SHIFT (16)
+#define UFSHCI_SQATTR_REG_CQID_MASK  (0xFF)
+#define UFSHCI_SQATTR_REG_PL_SHIFT   (28)
+#define UFSHCI_SQATTR_REG_PL_MASK    (0x7)
+#define UFSHCI_SQATTR_REG_SQEN_SHIFT (31)
+#define UFSHCI_SQATTR_REG_SQEN_MASK  (0x1)
+
+/*
+ * UFSHCI 4.1, section 5.9.4.6, SQCFG
+ * Submission Queue Configuration
+ */
+#define UFSHCI_SQCFG_REG_IAG_SHIFT  (0)
+#define UFSHCI_SQCFG_REG_IAG_MASK   (0x1F)
+#define UFSHCI_SQCFG_REG_IAGV_SHIFT (8)
+#define UFSHCI_SQCFG_REG_IAGV_MASK  (0x1)
+
+/*
+ * UFSHCI 4.1, section 5.9.5.1, CQATTR
+ * Completion Queue Attribute
+ * SIZE is a 0's based value in dword units.
+ */
+#define UFSHCI_CQATTR_REG_SIZE_SHIFT (0)
+#define UFSHCI_CQATTR_REG_SIZE_MASK  (0xFFFF)
+#define UFSHCI_CQATTR_REG_CQEN_SHIFT (31)
+#define UFSHCI_CQATTR_REG_CQEN_MASK  (0x1)
+
+/*
+ * UFSHCI 4.1, section 5.9.5.6, CQCFG
+ * Completion Queue Configuration
+ */
+#define UFSHCI_CQCFG_REG_IAG_SHIFT  (0)
+#define UFSHCI_CQCFG_REG_IAG_MASK   (0x1F)
+#define UFSHCI_CQCFG_REG_IAGV_SHIFT (8)
+#define UFSHCI_CQCFG_REG_IAGV_MASK  (0x1)
+
+/*
+ * UFSHCI 4.1, section 5.9.6.3, SQRTC
+ * Submission Queue Run Time Command
+ */
+#define UFSHCI_SQRTC_REG_STOP_SHIFT (0)
+#define UFSHCI_SQRTC_REG_STOP_MASK  (0x1)
+#define UFSHCI_SQRTC_REG_ICU_SHIFT  (1)
+#define UFSHCI_SQRTC_REG_ICU_MASK   (0x1)
+
+/*
+ * UFSHCI 4.1, section 5.9.6.4, SQCTI
+ * Submission Queue Cleanup Task Information
+ */
+#define UFSHCI_SQCTI_REG_TASKTAG_SHIFT (0)
+#define UFSHCI_SQCTI_REG_TASKTAG_MASK  (0xFF)
+#define UFSHCI_SQCTI_REG_LUN_SHIFT     (8)
+#define UFSHCI_SQCTI_REG_LUN_MASK      (0xFF)
+#define UFSHCI_SQCTI_REG_IID_SHIFT     (16)
+#define UFSHCI_SQCTI_REG_IID_MASK      (0xF)
+#define UFSHCI_SQCTI_REG_EXT_IID_SHIFT (20)
+#define UFSHCI_SQCTI_REG_EXT_IID_MASK  (0xF)
+
+/*
+ * UFSHCI 4.1, section 5.9.6.5, SQRTS
+ * Submission Queue Run Time Status
+ */
+#define UFSHCI_SQRTS_REG_STS_SHIFT (0)
+#define UFSHCI_SQRTS_REG_STS_MASK  (0x1)
+#define UFSHCI_SQRTS_REG_CUS_SHIFT (1)
+#define UFSHCI_SQRTS_REG_CUS_MASK  (0x1)
+#define UFSHCI_SQRTS_REG_RTC_SHIFT (4)
+#define UFSHCI_SQRTS_REG_RTC_MASK  (0xF)
+
+/*
+ * UFSHCI 4.1, section 5.9.6.6, SQIS
+ * Submission Queue Interrupt Status
+ * SQIE at SQISAO + 04h shares this layout.
+ */
+#define UFSHCI_SQIS_REG_HEFS_SHIFT (0)
+#define UFSHCI_SQIS_REG_HEFS_MASK  (0x1)
+#define UFSHCI_SQIS_REG_SSS_SHIFT  (1)
+#define UFSHCI_SQIS_REG_SSS_MASK   (0x1)
+#define UFSHCI_SQIS_REG_SCS_SHIFT  (2)
+#define UFSHCI_SQIS_REG_SCS_MASK   (0x1)
+#define UFSHCI_SQIS_REG_CDS_SHIFT  (3)
+#define UFSHCI_SQIS_REG_CDS_MASK   (0x1)
+
+/*
+ * UFSHCI 4.1, sections 5.9.6.10 and 5.9.6.11, CQIS and CQIE
+ * Completion Queue Interrupt Status and Enable
+ */
+#define UFSHCI_CQIS_REG_TEPS_SHIFT (0)
+#define UFSHCI_CQIS_REG_TEPS_MASK  (0x1)
+#define UFSHCI_CQIE_REG_TEPE_SHIFT (0)
+#define UFSHCI_CQIE_REG_TEPE_MASK  (0x1)
+
+/*
+ * UFSHCI 4.1, section 5.9.6.12, MCQIACR
+ * MCQ Interrupt Aggregation Control Register
+ */
+#define UFSHCI_MCQIACR_REG_IATOVAL_SHIFT (0)
+#define UFSHCI_MCQIACR_REG_IATOVAL_MASK	 (0xFF)
+#define UFSHCI_MCQIACR_REG_IACTH_SHIFT	 (8)
+#define UFSHCI_MCQIACR_REG_IACTH_MASK	 (0x1F)
+#define UFSHCI_MCQIACR_REG_CTR_SHIFT	 (16)
+#define UFSHCI_MCQIACR_REG_CTR_MASK	 (0x1)
+#define UFSHCI_MCQIACR_REG_IASB_SHIFT	 (20)
+#define UFSHCI_MCQIACR_REG_IASB_MASK	 (0x1)
+#define UFSHCI_MCQIACR_REG_IAPWEN_SHIFT	 (24)
+#define UFSHCI_MCQIACR_REG_IAPWEN_MASK	 (0x1)
+#define UFSHCI_MCQIACR_REG_IAEN_SHIFT	 (31)
+#define UFSHCI_MCQIACR_REG_IAEN_MASK	 (0x1)
+
 /* Helper macro to combine *_MASK and *_SHIFT defines */
 #define UFSHCIM(name) (name##_MASK << name##_SHIFT)
 
