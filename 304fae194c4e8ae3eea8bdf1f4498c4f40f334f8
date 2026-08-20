@@ -1,0 +1,1 @@
+[리뷰 주의 — 복구 semantics] disable에서 claim, enable은 전 큐 기동 후 claim된 것만 abort. 스캔-vs-abort 이중완료 레이스(GPF 재현) 수정. 2차 리뷰 반영: fail_hwq가 claim된 슬롯도 완료(리셋 실패 시 누수), abort_complete는 claim된 슬롯 skip(이중 완료).
