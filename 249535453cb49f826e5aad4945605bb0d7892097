@@ -1,0 +1,1 @@
+[리뷰 주의 — 복구 semantics] recovery 창에서 doorbell 증발로 인한 리셋 폭풍(22회 재현) 수정. SDB 리셋 경로의 동일 구멍도 함께 막음.
