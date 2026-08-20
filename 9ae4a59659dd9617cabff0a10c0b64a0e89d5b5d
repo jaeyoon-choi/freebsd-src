@@ -1,0 +1,1 @@
+[리뷰 주의 — 복구 semantics] 리셋 후 MCQ 잔여 요청 처리. fail_hwq 재사용으로 SCHEDULED 트래커를 ABORTED 수동완료. admin 재시도가 새 링에 재제출되므로 큐 레지스터 프로그램 이후에 호출해야 함. QEMU 리셋 주입 테스트로 검증 필요.
