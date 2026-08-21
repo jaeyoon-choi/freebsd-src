@@ -239,6 +239,22 @@ ufshci_req_sdb_disable(struct ufshci_controller *ctrlr,
 	hwq->recovery_state = RECOVERY_WAITING;
 	TAILQ_FOREACH_SAFE(tr, &hwq->outstanding_tr, tailq, tr_temp) {
 		tr->deadline = SBT_MAX;
+
+		/*
+		 * A failed controller never enables the queue again, so
+		 * the failure path owns the requests.
+		 */
+		if (ctrlr->is_failed)
+			continue;
+
+		/*
+		 * Claim the tracker. A reset clears the doorbell
+		 * register, which makes every slot look complete to the
+		 * completion scan. The scan skips a claimed slot, and
+		 * the enable path returns the request as aborted.
+		 */
+		if (tr->slot_state == UFSHCI_SLOT_STATE_SCHEDULED)
+			tr->slot_state = UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING;
 	}
 
 	mtx_unlock(&hwq->qlock);
@@ -342,6 +358,14 @@ ufshci_req_sdb_enable(struct ufshci_controller *ctrlr,
 out:
 	mtx_unlock(&hwq->qlock);
 	mtx_unlock(&hwq->recovery_lock);
+
+	/*
+	 * Return the requests the disable path claimed. The queue is
+	 * back, so an aborted request can retry right away.
+	 */
+	if (error == 0)
+		ufshci_req_queue_complete_aborted_hwq(hwq);
+
 	return (error);
 }
 
