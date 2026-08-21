@@ -476,6 +476,7 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 		    cpl.size);
 	}
 	ocs = tr->ocs;
+	cpl.ocs = ocs;
 
 	error = ufshci_req_queue_response_is_error(req_queue, ocs,
 	    &cpl.response_upiu);
