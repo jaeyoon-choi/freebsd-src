@@ -196,6 +196,35 @@ ufshci_req_queue_manual_complete_tracker(struct ufshci_tracker *tr, uint8_t ocs,
 	ufshci_req_queue_complete_tracker(tr);
 }
 
+/*
+ * Complete every tracker the disable path claimed. The claim keeps
+ * the completion scan away, so no tracker completes twice.
+ */
+void
+ufshci_req_queue_complete_aborted_hwq(struct ufshci_hw_queue *hwq)
+{
+	struct ufshci_tracker *tr;
+	uint32_t i;
+
+	mtx_lock(&hwq->qlock);
+
+	for (i = 0; i < hwq->num_trackers; i++) {
+		tr = hwq->act_tr[i];
+
+		if (tr->slot_state != UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING)
+			continue;
+
+		tr->slot_state = UFSHCI_SLOT_STATE_COMPLETING;
+		mtx_unlock(&hwq->qlock);
+		ufshci_req_queue_manual_complete_tracker(tr,
+		    UFSHCI_DESC_ABORTED,
+		    UFSHCI_RESPONSE_CODE_GENERAL_FAILURE);
+		mtx_lock(&hwq->qlock);
+	}
+
+	mtx_unlock(&hwq->qlock);
+}
+
 void
 ufshci_req_queue_fail(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue)
@@ -216,17 +245,20 @@ ufshci_req_queue_fail(struct ufshci_controller *ctrlr,
 		 * A slot in UFSHCI_SLOT_STATE_RESERVED is visible here
 		 * only while its submit thread is failing a PRDT setup.
 		 * That thread completes the request, so leave the slot
-		 * alone.
+		 * alone. A reset that failed before it enabled the queue
+		 * again leaves its claimed slots behind, and nothing
+		 * else completes those.
 		 */
-		if (tr->slot_state != UFSHCI_SLOT_STATE_SCHEDULED)
+		if (tr->slot_state != UFSHCI_SLOT_STATE_SCHEDULED &&
+		    tr->slot_state != UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING)
 			continue;
 
 		/*
-		 * Claim the tracker under the lock. The completion
-		 * scan only completes SCHEDULED slots, so it will
-		 * skip this one while the lock is dropped.
+		 * Claim the tracker under the lock. Every other walker
+		 * skips a slot in this state, so the tracker cannot
+		 * complete twice while the lock is dropped.
 		 */
-		tr->slot_state = UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING;
+		tr->slot_state = UFSHCI_SLOT_STATE_COMPLETING;
 		mtx_unlock(&hwq->qlock);
 		ufshci_req_queue_manual_complete_tracker(tr,
 		    UFSHCI_DESC_ABORTED,
@@ -491,7 +523,12 @@ ufshci_abort_complete(void *arg, const struct ufshci_completion *status,
 	 * complete the command manually.
 	 */
 	mtx_lock(&tr->hwq->qlock);
-	if (tr->slot_state != UFSHCI_SLOT_STATE_FREE) {
+	/*
+	 * Only a scheduled slot still waits on the controller. Claim it
+	 * before the unlock, so no other path completes it as well.
+	 */
+	if (tr->slot_state == UFSHCI_SLOT_STATE_SCHEDULED) {
+		tr->slot_state = UFSHCI_SLOT_STATE_COMPLETING;
 		mtx_unlock(&tr->hwq->qlock);
 		/*
 		 * An I/O has timed out, and the controller was unable to abort
@@ -770,6 +807,18 @@ ufshci_req_queue_submit_tracker(struct ufshci_req_queue *req_queue,
 	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 
 	tr->slot_state = UFSHCI_SLOT_STATE_SCHEDULED;
+
+	/*
+	 * A reset would wipe this doorbell, so leave the I/O claimed for
+	 * the reset to return, with no deadline as the disable path does.
+	 * Admin requests still go out, because the reset task may be the
+	 * one waiting on them.
+	 */
+	if (!req->is_admin && tr->hwq->recovery_state != RECOVERY_NONE) {
+		tr->deadline = SBT_MAX;
+		tr->slot_state = UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING;
+		return;
+	}
 
 	/* Debug aid: leave the request for the watchdog to find. */
 	if (__predict_false(ufshci_req_queue_debug_drop(ctrlr, req))) {
