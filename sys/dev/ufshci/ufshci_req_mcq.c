@@ -612,6 +612,13 @@ ufshci_req_mcq_process_cpl(struct ufshci_hw_queue *hwq)
 		 */
 		mtx_lock(&hwq->qlock);
 		completed = tr->slot_state == UFSHCI_SLOT_STATE_SCHEDULED;
+		/*
+		 * Claim the slot while the lock is held. The reset path
+		 * walks the same slots, so without a claim both paths
+		 * could complete this request.
+		 */
+		if (completed)
+			tr->slot_state = UFSHCI_SLOT_STATE_COMPLETING;
 		mtx_unlock(&hwq->qlock);
 
 		if (completed) {
