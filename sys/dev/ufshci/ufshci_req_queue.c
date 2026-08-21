@@ -196,6 +196,35 @@ ufshci_req_queue_manual_complete_tracker(struct ufshci_tracker *tr, uint8_t ocs,
 	ufshci_req_queue_complete_tracker(tr);
 }
 
+/*
+ * Complete every tracker the disable path claimed. The claim keeps
+ * the completion scan away, so no tracker completes twice.
+ */
+void
+ufshci_req_queue_complete_aborted_hwq(struct ufshci_hw_queue *hwq)
+{
+	struct ufshci_tracker *tr;
+	uint32_t i;
+
+	mtx_lock(&hwq->qlock);
+
+	for (i = 0; i < hwq->num_trackers; i++) {
+		tr = hwq->act_tr[i];
+
+		if (tr->slot_state != UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING)
+			continue;
+
+		tr->slot_state = UFSHCI_SLOT_STATE_COMPLETING;
+		mtx_unlock(&hwq->qlock);
+		ufshci_req_queue_manual_complete_tracker(tr,
+		    UFSHCI_DESC_ABORTED,
+		    UFSHCI_RESPONSE_CODE_GENERAL_FAILURE);
+		mtx_lock(&hwq->qlock);
+	}
+
+	mtx_unlock(&hwq->qlock);
+}
+
 void
 ufshci_req_queue_fail(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue)
@@ -490,7 +519,14 @@ ufshci_abort_complete(void *arg, const struct ufshci_completion *status,
 	 * complete the command manually.
 	 */
 	mtx_lock(&tr->hwq->qlock);
-	if (tr->slot_state != UFSHCI_SLOT_STATE_FREE) {
+	/*
+	 * A slot in UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING belongs to
+	 * the failure or the reset path. That path completes it, so
+	 * completing it here would complete the request twice.
+	 */
+	if (tr->slot_state != UFSHCI_SLOT_STATE_FREE &&
+	    tr->slot_state != UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING &&
+	    tr->slot_state != UFSHCI_SLOT_STATE_COMPLETING) {
 		mtx_unlock(&tr->hwq->qlock);
 		/*
 		 * An I/O has timed out, and the controller was unable to abort

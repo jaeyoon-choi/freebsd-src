@@ -82,6 +82,7 @@ enum ufshci_slot_state {
 	UFSHCI_SLOT_STATE_SCHEDULED = 0x2,
 	UFSHCI_SLOT_STATE_TIMEOUT = 0x3,
 	UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING = 0x4,
+	UFSHCI_SLOT_STATE_COMPLETING = 0x5,
 };
 
 struct ufshci_tracker {
@@ -512,6 +513,7 @@ void ufshci_utmr_req_queue_disable(struct ufshci_controller *ctrlr);
 int ufshci_utmr_req_queue_enable(struct ufshci_controller *ctrlr);
 void ufshci_utr_req_queue_disable(struct ufshci_controller *ctrlr);
 int ufshci_utr_req_queue_enable(struct ufshci_controller *ctrlr);
+void ufshci_req_queue_complete_aborted_hwq(struct ufshci_hw_queue *hwq);
 void ufshci_req_queue_fail(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue);
 int ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
