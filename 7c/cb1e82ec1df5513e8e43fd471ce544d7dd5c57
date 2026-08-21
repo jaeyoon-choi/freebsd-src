@@ -1,0 +1,1 @@
+[리뷰 주의 — 리셋 semantics] QEMU 실측: HCE 리셋/큐 재생성이 hp/tp 보존 → 포인터 0 가정 시 이중완료(UAF 재현). SQHP/CQTP 채택 + 링 마스킹 + QCFGPTR 창 검증 + enable 확인 + 부분 실패 롤백.
