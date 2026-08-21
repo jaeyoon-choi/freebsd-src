@@ -373,9 +373,19 @@ int
 ufshci_req_sdb_reserve_slot(struct ufshci_hw_queue *hwq,
     struct ufshci_tracker **tr, bool admin)
 {
+	uint32_t count;
 	uint8_t i;
 
-	for (i = 0; i < hwq->num_entries; i++) {
+	/*
+	 * Hold the last slot for admin requests. A reset sends its
+	 * bring-up commands through this queue, and the I/O it just
+	 * released must not take every slot before it gets there.
+	 */
+	count = hwq->num_entries;
+	if (!admin && !hwq->req_queue->is_task_mgmt)
+		count--;
+
+	for (i = 0; i < count; i++) {
 		if (hwq->act_tr[i]->slot_state == UFSHCI_SLOT_STATE_FREE) {
 			*tr = hwq->act_tr[i];
 			(*tr)->hwq = hwq;
