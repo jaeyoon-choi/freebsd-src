@@ -463,7 +463,7 @@ ufshci_req_mcq_enable(struct ufshci_controller *ctrlr,
 
 int
 ufshci_req_mcq_reserve_slot(struct ufshci_hw_queue *hwq,
-    struct ufshci_tracker **tr)
+    struct ufshci_tracker **tr, bool admin __unused)
 {
 	struct ufshci_controller *ctrlr = hwq->ctrlr;
 	uint32_t sq_head;

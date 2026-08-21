@@ -371,7 +371,7 @@ out:
 
 int
 ufshci_req_sdb_reserve_slot(struct ufshci_hw_queue *hwq,
-    struct ufshci_tracker **tr)
+    struct ufshci_tracker **tr, bool admin)
 {
 	uint8_t i;
 

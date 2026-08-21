@@ -1042,7 +1042,7 @@ _ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 	 * A full ring returns EBUSY. The caller falls back to another
 	 * queue or asks CAM to retry, so do not log it.
 	 */
-	error = req_queue->qops.reserve_slot(hwq, &tr);
+	error = req_queue->qops.reserve_slot(hwq, &tr, req->is_admin);
 	if (error != 0)
 		return (error);
 	KASSERT(tr, ("There is no tracker allocated."));
