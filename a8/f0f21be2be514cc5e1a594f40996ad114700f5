@@ -1,0 +1,1 @@
+[리뷰 주의 — 기아] 리셋이 회수→CAM 즉시 재제출→32슬롯 점유→bring-up NOP EBUSY→ctrlr_fail 연쇄를 error_recovery가 재현. 기존 TODO(Separate IO and Admin slot) 구현.
