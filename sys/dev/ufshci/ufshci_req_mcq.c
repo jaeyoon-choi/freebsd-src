@@ -45,8 +45,15 @@ ufshci_req_mcq_construct(struct ufshci_controller *ctrlr,
 	req_queue->ctrlr = ctrlr;
 	req_queue->is_task_mgmt = is_task_mgmt;
 	req_queue->num_entries = num_entries;
-	/* Every hardware queue owns one tracker per ring entry. */
-	req_queue->num_trackers = num_entries;
+	/*
+	 * One tracker per ring entry, less one. The completion queue
+	 * reads as empty when its head equals its tail, so it can only
+	 * carry num_entries - 1 completions before the two pointers
+	 * meet and the queue looks empty again. Every outstanding
+	 * request produces exactly one completion, so the tracker count
+	 * is what has to hold that line.
+	 */
+	req_queue->num_trackers = num_entries - 1;
 	/* Queue 0 is the admin queue. The I/O queues follow it. */
 	num_q = ctrlr->num_io_queues + 1;
 
@@ -168,9 +175,13 @@ ufshci_req_mcq_construct(struct ufshci_controller *ctrlr,
 			hwq->act_tr[i] = tr;
 		}
 
-		/* Allocate the UTP command descriptor pool. */
+		/*
+		 * Allocate the UTP command descriptor pool. One
+		 * descriptor per tracker, which is one fewer than the
+		 * ring holds.
+		 */
 		error = ufshci_req_queue_cmd_desc_construct(req_queue, hwq,
-		    num_entries, ctrlr);
+		    req_queue->num_trackers, ctrlr);
 		if (error != 0) {
 			ufshci_printf(ctrlr,
 			    "failed to construct cmd descriptor memory\n");
