@@ -1,0 +1,1 @@
+[리뷰 주의 — 복구 semantics] 완료 스캔이 락 밖에서 완료하던 창을 닫음. error_recovery 테스트가 GPF로 재현한 실버그(보류 #2 계열). SDB·MCQ 공통.
