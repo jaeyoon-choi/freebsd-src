@@ -382,25 +382,29 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 
 	/* Read Device Capabilities */
 	ctrlr->cap = cap = ufshci_mmio_read_4(ctrlr, cap);
-	if (ctrlr->quirks & UFSHCI_QUIRK_BROKEN_LSDBS_MCQS_CAP) {
+	/*
+	 * A quirked controller misreports LSDBS, so take single doorbell
+	 * support as given. MCQS is trusted either way: the Snapdragon X
+	 * Elite reports no MCQ and has no MCQ block behind the register,
+	 * so forcing it on would enter the MCQ path only to back out when
+	 * MCQCAP reads zero.
+	 */
+	if (ctrlr->quirks & UFSHCI_QUIRK_BROKEN_LSDBS_CAP)
 		ctrlr->is_single_db_supported = true;
-		ctrlr->is_mcq_supported = true;
-	} else {
+	else
 		ctrlr->is_single_db_supported = (UFSHCIV(UFSHCI_CAP_REG_LSDBS,
 						     cap) == 0);
-		ctrlr->is_mcq_supported = (UFSHCIV(UFSHCI_CAP_REG_MCQS, cap) ==
-		    1);
-	}
+	ctrlr->is_mcq_supported = (UFSHCIV(UFSHCI_CAP_REG_MCQS, cap) == 1);
 	if (!(ctrlr->is_single_db_supported || ctrlr->is_mcq_supported))
 		return (ENXIO);
 
 	/*
-	 * Use MCQ when the controller supports it. A controller with
-	 * broken capability fields cannot prove its MCQ support, so it
-	 * stays on the single doorbell unless the tunable turns MCQ on.
-	 * A controller without the single doorbell always uses MCQ.
+	 * Use MCQ when the controller supports it. MCQS is trusted, so a
+	 * controller that reports no MCQ simply stays on the single
+	 * doorbell. A controller without the single doorbell always uses
+	 * MCQ.
 	 */
-	use_mcq = (ctrlr->quirks & UFSHCI_QUIRK_BROKEN_LSDBS_MCQS_CAP) ? 0 : 1;
+	use_mcq = 1;
 	TUNABLE_INT_FETCH("hw.ufshci.use_mcq", &use_mcq);
 	ctrlr->enable_mcq = (ctrlr->major_version >= 4 &&
 	    ctrlr->is_mcq_supported && use_mcq != 0) ||

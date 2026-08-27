@@ -347,8 +347,10 @@ struct ufshci_controller {
 #define UFSHCI_QUIRK_REINIT_AFTER_MAX_GEAR_SWITCH                            \
 	128 /* Some controllers need to reinit the device after gear switch. \
 	     */
-#define UFSHCI_QUIRK_BROKEN_LSDBS_MCQS_CAP \
-	256 /* Some controllers have their LSDB and MCQS fields reset to 0. */
+#define UFSHCI_QUIRK_BROKEN_LSDBS_CAP                                          \
+	256 /* Some controllers misreport the LSDBS capability bit. Trust    \
+	     * the MCQS bit and only force single doorbell support on.        \
+	     */
 
 	uint32_t ref_clk;
 	uint32_t hs_series;
