@@ -400,6 +400,7 @@ struct ufshci_controller {
 
 	/* Controller capacity */
 	uint32_t cap;
+	uint32_t mcqcap;
 
 	/* Page size and log2(page_size) - 12 that we're currently using */
 	uint32_t page_size;

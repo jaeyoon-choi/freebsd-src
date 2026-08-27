@@ -406,10 +406,18 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 	    ctrlr->is_mcq_supported && use_mcq != 0) ||
 	    !ctrlr->is_single_db_supported;
 
-	if (ctrlr->enable_mcq) {
-		uint32_t mcqcap;
+	/*
+	 * Keep the raw capability register. It is what says why multi
+	 * circular queue mode was or was not taken, and on a controller
+	 * whose CAP bits are known to lie it is the only way to tell a
+	 * register that reads zero from one that was never implemented.
+	 */
+	if (ctrlr->major_version >= 4)
+		ctrlr->mcqcap = ufshci_mmio_read_4(ctrlr, mcqcap);
 
-		mcqcap = ufshci_mmio_read_4(ctrlr, mcqcap);
+	if (ctrlr->enable_mcq) {
+		uint32_t mcqcap = ctrlr->mcqcap;
+
 		/* MAXQ is a 0's based value. */
 		ctrlr->mcq_maxq = UFSHCIV(UFSHCI_MCQCAP_REG_MAXQ, mcqcap) + 1;
 
