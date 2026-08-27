@@ -1,0 +1,1 @@
+[리뷰 주의 — 동작 변경] quirk를 LSDBS만 보정하도록 좁힘(MCQS는 하드웨어 신뢰). 근거: GB 실측 LSDBS=1(오보)·MCQS=0(정확)·MCQCAP=0x0. X Elite 검증: 좁힌 뒤에도 SDB 정상 attach, da1 16MB 읽기 1.79GB/s. QEMU(MCQS=1)는 무영향. use_mcq 강제(=0) 제거로 이중방어 해소.
