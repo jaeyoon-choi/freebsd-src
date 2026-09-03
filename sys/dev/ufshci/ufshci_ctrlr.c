@@ -346,6 +346,15 @@ ufshci_ctrlr_reset_task(void *arg, int pending)
 	if (error)
 		return (ufshci_ctrlr_fail(ctrlr));
 
+	/*
+	 * Nothing will ever complete the requests that were in flight. The
+	 * hardware has been reset and no longer knows about them, and the
+	 * restart below needs their trackers. A caller waiting on one waits
+	 * forever, and a polled caller panics.
+	 */
+	ufshci_req_queue_fail(ctrlr, &ctrlr->task_mgmt_req_queue);
+	ufshci_req_queue_fail(ctrlr, &ctrlr->transfer_req_queue);
+
 	ufshci_ctrlr_start(ctrlr, true);
 }
 

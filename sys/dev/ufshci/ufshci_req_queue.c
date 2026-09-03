@@ -270,8 +270,13 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 	error = ufshci_req_queue_response_is_error(req_queue, ocs,
 	    &cpl.response_upiu);
 
-	/* Retry for admin commands. A failed controller must not retry. */
-	retriable = req->is_admin && !req_queue->ctrlr->is_failed;
+	/*
+	 * Retry for admin commands. A failed controller must not retry, and
+	 * neither must a queue in recovery: resubmitting rings the doorbell
+	 * of a queue that is being torn down.
+	 */
+	retriable = req->is_admin && !req_queue->ctrlr->is_failed &&
+	    hwq->recovery_state == RECOVERY_NONE;
 	retry = error && retriable &&
 	    req->retries < req_queue->ctrlr->retry_count;
 	if (retry)
