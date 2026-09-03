@@ -430,7 +430,7 @@ static void
 ufshci_req_queue_fill_utr_descriptor(struct ufshci_utp_xfer_req_desc *desc,
     uint8_t data_direction, const uint64_t paddr, const uint16_t response_off,
     const uint16_t response_len, const uint16_t prdt_off,
-    const uint16_t prdt_entry_cnt)
+    const uint16_t prdt_entry_cnt, const uint8_t total_ehs_length)
 {
 	uint8_t command_type;
 	/* Value to convert bytes to dwords */
@@ -457,6 +457,13 @@ ufshci_req_queue_fill_utr_descriptor(struct ufshci_utp_xfer_req_desc *desc,
 	desc->response_upiu_length = response_len / dword_size;
 	desc->prdt_offset = prdt_off / dword_size;
 	desc->prdt_length = prdt_entry_cnt;
+
+	/*
+	 * The controller learns the size of an Extra Header Segment from
+	 * here. A caller that asks for one has already been checked against
+	 * the EHSLUTRDS capability.
+	 */
+	desc->total_ehs_length = total_ehs_length;
 }
 
 static void
@@ -746,7 +753,8 @@ ufshci_req_queue_submit_tracker(struct ufshci_req_queue *req_queue,
 		ucd_paddr = tr->ucd_bus_addr;
 		ufshci_req_queue_fill_utr_descriptor(&tr->hwq->utrd[slot_num],
 		    data_direction, ucd_paddr, response_off, response_len,
-		    tr->prdt_off, tr->prdt_entry_cnt);
+		    tr->prdt_off, tr->prdt_entry_cnt,
+		    req->request_upiu.header.ehs_length);
 
 		bus_dmamap_sync(req_queue->dma_tag_ucd, req_queue->ucdmem_map,
 		    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
