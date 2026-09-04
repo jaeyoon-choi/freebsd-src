@@ -27,14 +27,16 @@
  * a command UPIU uses it.
  */
 struct ufshci_pt_command {
+	/* The driver replaces task_tag with the slot it uses. */
 	struct ufshci_upiu req_upiu;  /* [in] */
+	/* Only the first 288 bytes are filled. The rest reads as zero. */
 	struct ufshci_upiu resp_upiu; /* [out] */
 	void *buf;		      /* [in] PRDT payload, may be NULL */
 	uint32_t len;		      /* [in] length of buf */
 	uint32_t flags;		      /* [in] UFSHCI_PT_FLAG_* */
-	uint32_t timeout_ms;	      /* [in] 0 means the driver default */
-	uint32_t xfer_len;	      /* [out] bytes actually moved */
-	uint8_t ocs;		      /* [out] overall command status */
+	uint32_t timeout_ms;	      /* [in] must be 0, see below */
+	uint32_t xfer_len;	      /* [out] bytes the request carried */
+	uint8_t ocs;		      /* [out] reserved, always 0 for now */
 	uint8_t reserved[7];
 };
 
@@ -45,6 +47,16 @@ struct ufshci_pt_uic_command {
 };
 
 /*
+ * A zero return means the command reached the device and came back. It
+ * does not mean the device liked it: read the response field in the
+ * response UPIU header for that. An errno means the request never got
+ * that far, and none of the output fields are filled, because the ioctl
+ * layer copies them back only on success.
+ *
+ * timeout_ms is reserved. The driver has no per request timeout to apply
+ * yet, so it refuses any value other than zero rather than accept one and
+ * ignore it.
+ *
  * Command group 'u'. ttycom.h claims _IO('u', n) for UIOCCMD, but that
  * encoding carries IOC_VOID and a zero length, so it cannot collide with
  * these.
