@@ -1,0 +1,1 @@
+[리뷰 주의 — 순서] intr teardown → taskqueue_free(진행 중 reset 대기) → 큐 destroy. 실험: 리셋 poll 대기 중 kldunload — 전: page fault(reclaim_polled가 해제된 qlock 잠금, 콘솔캡처) / 후: rc=0 after 7s, detached.
