@@ -407,6 +407,8 @@ ufshci_req_sdb_enable(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue)
 {
 	struct ufshci_hw_queue *hwq = &req_queue->hwq[UFSHCI_SDB_Q];
+	struct ufshci_tracker *tr;
+	uint32_t i;
 	int error = 0;
 
 	mtx_lock(&hwq->recovery_lock);
@@ -493,6 +495,15 @@ ufshci_req_sdb_enable(struct ufshci_controller *ctrlr,
 	if (mtx_initialized(&hwq->qlock))
 		mtx_assert(&hwq->qlock, MA_OWNED);
 	KASSERT(!req_queue->ctrlr->is_failed, ("Enabling a failed hwq\n"));
+
+	/* The reset rebuilt the list, so a parked slot is free again. */
+	for (i = 0; i < hwq->num_trackers; i++) {
+		tr = hwq->act_tr[i];
+		if (tr->slot_state != UFSHCI_SLOT_STATE_TIMEOUT)
+			continue;
+		tr->slot_state = UFSHCI_SLOT_STATE_FREE;
+		TAILQ_INSERT_HEAD(&hwq->free_tr, tr, tailq);
+	}
 
 	hwq->recovery_state = RECOVERY_NONE;
 
@@ -607,6 +618,29 @@ ufshci_req_sdb_utr_is_doorbell_cleared(struct ufshci_controller *ctrlr,
 
 	utrldbr = ufshci_mmio_read_4(ctrlr, utrldbr);
 	return (!(utrldbr & (1 << slot)));
+}
+
+/*
+ * Wait a bounded time for the controller to drop a slot from its list.
+ * A slot that stays set is not safe to hand out again.
+ */
+bool
+ufshci_req_sdb_utr_clear_slot(struct ufshci_controller *ctrlr,
+    struct ufshci_tracker *tr)
+{
+	int i;
+
+	/* A 0 bit clears that slot, and a 1 bit leaves its slot alone. */
+	ufshci_mmio_write_4(ctrlr, utrlclr, ~(1u << tr->slot_num));
+
+	for (i = 0; i < 100; i++) {
+		if (ufshci_req_sdb_utr_is_doorbell_cleared(ctrlr,
+		    tr->slot_num))
+			return (true);
+		DELAY(10);
+	}
+
+	return (false);
 }
 
 bool
