@@ -140,6 +140,27 @@ ufshci_utr_req_queue_enable(struct ufshci_controller *ctrlr)
 	    &ctrlr->transfer_req_queue));
 }
 
+/*
+ * Stop the watchdog of the hardware queue. The trackers stay in
+ * place, so a reset that is still running can finish with them.
+ */
+void
+ufshci_req_queue_stop_watchdog(struct ufshci_req_queue *req_queue)
+{
+	struct ufshci_hw_queue *hwq;
+
+	/* Attach may fail before the queue is set up. */
+	if (req_queue->hwq == NULL)
+		return;
+
+	hwq = req_queue->qops.get_hw_queue(req_queue);
+
+	mtx_lock(&hwq->recovery_lock);
+	hwq->timer_armed = false;
+	mtx_unlock(&hwq->recovery_lock);
+	callout_drain(&hwq->timer);
+}
+
 static bool
 ufshci_req_queue_response_is_error(struct ufshci_req_queue *req_queue,
     uint8_t ocs, union ufshci_reponse_upiu *response)
