@@ -299,6 +299,8 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 		ocs = hwq->utrd[tr->slot_num].overall_command_status;
 	}
 
+	cpl.ocs = ocs;
+
 	error = ufshci_req_queue_response_is_error(req_queue, ocs,
 	    &cpl.response_upiu);
 
@@ -538,8 +540,9 @@ ufshci_abort_complete(void *arg, const struct ufshci_completion *status,
 		 */
 		ufshci_printf(tr->hwq->ctrlr,
 		    "abort task request failed, aborting task manually\n");
+		/* Not ABORTED: the SIM requeues those without a retry. */
 		ufshci_req_queue_manual_complete_tracker(tr,
-		    UFSHCI_DESC_ABORTED, UFSHCI_RESPONSE_CODE_GENERAL_FAILURE);
+		    UFSHCI_DESC_INVALID, UFSHCI_RESPONSE_CODE_GENERAL_FAILURE);
 
 		output_param1 = be32toh(
 		    status->response_upiu.task_mgmt_response_upiu.output_param1);
