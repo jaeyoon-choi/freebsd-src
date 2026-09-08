@@ -171,7 +171,11 @@ ufshci_passthrough_cmd(struct ufshci_controller *ctrlr,
 		goto out;
 	}
 
-	ufshci_completion_poll(&status);
+	/* A command that never completed was taken back without a response. */
+	error = ufshci_completion_poll(&ctrlr->transfer_req_queue, &status);
+	if (error == ETIMEDOUT)
+		goto out;
+	error = 0;
 
 	memcpy(&pt->resp_upiu, &status.cpl.response_upiu,
 	    min(sizeof(pt->resp_upiu), sizeof(status.cpl.response_upiu)));

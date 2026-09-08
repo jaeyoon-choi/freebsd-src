@@ -134,6 +134,8 @@ struct ufshci_qops {
 	    struct ufshci_tracker *tr);
 	bool (*is_doorbell_cleared)(struct ufshci_controller *ctrlr,
 	    uint8_t slot);
+	bool (*clear_slot)(struct ufshci_controller *ctrlr,
+	    struct ufshci_tracker *tr);
 	void (*clear_cpl_ntf)(struct ufshci_controller *ctrlr,
 	    struct ufshci_tracker *tr);
 	bool (*process_cpl)(struct ufshci_req_queue *req_queue);
@@ -540,6 +542,8 @@ bool ufshci_req_sdb_utmr_is_doorbell_cleared(struct ufshci_controller *ctrlr,
     uint8_t slot);
 bool ufshci_req_sdb_utr_is_doorbell_cleared(struct ufshci_controller *ctrlr,
     uint8_t slot);
+bool ufshci_req_sdb_utr_clear_slot(struct ufshci_controller *ctrlr,
+    struct ufshci_tracker *tr);
 void ufshci_req_sdb_utmr_clear_cpl_ntf(struct ufshci_controller *ctrlr,
     struct ufshci_tracker *tr);
 void ufshci_req_sdb_utr_clear_cpl_ntf(struct ufshci_controller *ctrlr,
@@ -572,33 +576,54 @@ void ufshci_sysctl_initialize_ctrlr(struct ufshci_controller *ctrlr);
 int ufshci_attach(device_t dev);
 int ufshci_detach(device_t dev);
 
+int ufshci_req_queue_reclaim_polled(struct ufshci_req_queue *req_queue,
+    struct ufshci_completion_poll_status *status);
+
 /*
  * Wait for a command to complete using the ufshci_completion_poll_cb. Used in
  * limited contexts where the caller knows it's OK to block briefly while the
  * command runs. The ISR will run the callback which will set status->done to
- * true, usually within microseconds. If not, then after one second timeout
- * handler should reset the controller and abort all outstanding requests
- * including this polled one. If still not after ten seconds, then something is
- * wrong with the driver, and panic is the only way to recover.
+ * true, usually within microseconds.
+ *
+ * Returns 0 on success, ENXIO on a failed command, and ETIMEDOUT when the
+ * command did not complete within ten seconds and its tracker was reclaimed.
  *
  * Most commands using this interface aren't actual I/O to the drive's media so
  * complete within a few microseconds. Adaptively spin for one tick to catch the
  * vast majority of these without waiting for a tick plus scheduling delays.
  * Since these are on startup, this drastically reduces startup time.
  */
-static __inline void
-ufshci_completion_poll(struct ufshci_completion_poll_status *status)
+static __inline int
+ufshci_completion_poll(struct ufshci_req_queue *req_queue,
+    struct ufshci_completion_poll_status *status)
 {
 	int timeout = ticks + 10 * hz;
 	sbintime_t delta_t = SBT_1US;
+	bool completing = false;
+	int error;
 
 	while (!atomic_load_acq_int(&status->done)) {
-		if (timeout - ticks < 0)
-			panic(
-			    "UFSHCI polled command failed to complete within 10s.");
+		if (timeout - ticks < 0) {
+			/*
+			 * A reset holding the tracker always finishes it.
+			 * Only a completion on another path gets one second.
+			 */
+			if (completing)
+				panic(
+				    "UFSHCI polled command stuck completing.");
+			error = ufshci_req_queue_reclaim_polled(req_queue,
+			    status);
+			if (error == 0)
+				return (ETIMEDOUT);
+			if (error != EBUSY)
+				completing = true;
+			timeout = ticks + hz;
+		}
 		pause_sbt("ufshci_cpl", delta_t, 0, C_PREL(1));
 		delta_t = min(SBT_1MS, delta_t * 3 / 2);
 	}
+
+	return (status->error ? ENXIO : 0);
 }
 
 static __inline void

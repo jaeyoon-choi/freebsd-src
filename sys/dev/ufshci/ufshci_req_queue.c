@@ -42,6 +42,7 @@ static const struct ufshci_qops sdb_utr_qops = {
 	.reserve_slot = ufshci_req_sdb_reserve_slot,
 	.ring_doorbell = ufshci_req_sdb_utr_ring_doorbell,
 	.is_doorbell_cleared = ufshci_req_sdb_utr_is_doorbell_cleared,
+	.clear_slot = ufshci_req_sdb_utr_clear_slot,
 	.clear_cpl_ntf = ufshci_req_sdb_utr_clear_cpl_ntf,
 	.process_cpl = ufshci_req_sdb_process_cpl,
 	.get_inflight_io = ufshci_req_sdb_get_inflight_io,
@@ -221,6 +222,85 @@ ufshci_req_queue_complete_aborted_hwq(struct ufshci_hw_queue *hwq)
 	}
 
 	mtx_unlock(&hwq->qlock);
+}
+
+/*
+ * Take back a polled command that never completed, so a late completion
+ * cannot write to the caller's stack. Returns 0 when it was reclaimed,
+ * EBUSY when a reset holds it and EINPROGRESS when another path is
+ * completing it.
+ */
+int
+ufshci_req_queue_reclaim_polled(struct ufshci_req_queue *req_queue,
+    struct ufshci_completion_poll_status *status)
+{
+	struct ufshci_hw_queue *hwq = req_queue->qops.get_hw_queue(req_queue);
+	struct ufshci_tracker *tr = NULL;
+	struct ufshci_request *req;
+	bool cleared;
+	int i;
+
+	mtx_lock(&hwq->qlock);
+
+	for (i = 0; i < req_queue->num_trackers; i++) {
+		tr = hwq->act_tr[i];
+
+		if (tr->req == NULL || tr->req->cb_arg != status)
+			continue;
+		if (tr->slot_state == UFSHCI_SLOT_STATE_SCHEDULED)
+			break;
+		if (tr->slot_state == UFSHCI_SLOT_STATE_NEED_ERROR_HANDLING) {
+			mtx_unlock(&hwq->qlock);
+			return (EBUSY);
+		}
+	}
+	if (i == req_queue->num_trackers) {
+		mtx_unlock(&hwq->qlock);
+		return (EINPROGRESS);
+	}
+
+	/* Keep every other path away while the slot is cleared. */
+	tr->slot_state = UFSHCI_SLOT_STATE_COMPLETING;
+	mtx_unlock(&hwq->qlock);
+
+	ufshci_printf(req_queue->ctrlr,
+	    "gave up on a polled command that did not complete\n");
+
+	/*
+	 * The command may still be on the controller's list. A slot handed
+	 * out again while its doorbell is set would take this command's
+	 * completion, so the slot is only reused once it is cleared.
+	 */
+	cleared = req_queue->qops.clear_slot(req_queue->ctrlr, tr);
+
+	mtx_lock(&hwq->qlock);
+
+	req = tr->req;
+	if (req->payload_valid) {
+		bus_dmamap_unload(req_queue->dma_tag_payload,
+		    tr->payload_dma_map);
+	}
+	ufshci_free_request(req);
+	tr->req = NULL;
+
+	TAILQ_REMOVE(&hwq->outstanding_tr, tr, tailq);
+	if (cleared) {
+		tr->slot_state = UFSHCI_SLOT_STATE_FREE;
+		TAILQ_INSERT_HEAD(&hwq->free_tr, tr, tailq);
+	} else {
+		/* Park the slot until a reset rebuilds the list. */
+		tr->slot_state = UFSHCI_SLOT_STATE_TIMEOUT;
+	}
+
+	status->error = true;
+	atomic_store_rel_int(&status->done, 1);
+
+	mtx_unlock(&hwq->qlock);
+
+	if (!cleared)
+		ufshci_ctrlr_reset(req_queue->ctrlr);
+
+	return (0);
 }
 
 void
