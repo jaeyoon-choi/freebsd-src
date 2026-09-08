@@ -551,8 +551,7 @@ ufshci_ctrlr_send_nop(struct ufshci_controller *ctrlr)
 	if (error)
 		return (error);
 
-	ufshci_completion_poll(&status);
-	if (status.error) {
+	if (ufshci_completion_poll(&ctrlr->transfer_req_queue, &status) != 0) {
 		ufshci_printf(ctrlr, "ufshci_ctrlr_send_nop failed!\n");
 		return (ENXIO);
 	}

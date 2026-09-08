@@ -225,6 +225,61 @@ ufshci_req_queue_complete_aborted_hwq(struct ufshci_hw_queue *hwq)
 	mtx_unlock(&hwq->qlock);
 }
 
+/*
+ * Reclaim a polled command that never completed. A late completion
+ * would write to the caller's stack once it returns, so the tracker is
+ * taken away from the completion scan and freed here instead. The
+ * status is marked as an error and done so the poll loop stops waiting.
+ *
+ * Returns true when the tracker was reclaimed. A false return means the
+ * command is already completing on another path, which will set done.
+ */
+bool
+ufshci_req_queue_reclaim_polled(struct ufshci_req_queue *req_queue,
+    struct ufshci_completion_poll_status *status)
+{
+	struct ufshci_hw_queue *hwq = req_queue->qops.get_hw_queue(req_queue);
+	struct ufshci_tracker *tr;
+	struct ufshci_request *req;
+	int i;
+
+	mtx_lock(&hwq->qlock);
+
+	for (i = 0; i < req_queue->num_trackers; i++) {
+		tr = hwq->act_tr[i];
+
+		if (tr->slot_state != UFSHCI_SLOT_STATE_SCHEDULED ||
+		    tr->req == NULL || tr->req->cb_arg != status)
+			continue;
+
+		ufshci_printf(req_queue->ctrlr,
+		    "gave up on a polled command that did not complete\n");
+
+		status->error = true;
+		atomic_store_rel_int(&status->done, 1);
+
+		req = tr->req;
+		if (req->payload_valid) {
+			bus_dmamap_unload(req_queue->dma_tag_payload,
+			    tr->payload_dma_map);
+		}
+
+		ufshci_free_request(req);
+		tr->req = NULL;
+		tr->slot_state = UFSHCI_SLOT_STATE_FREE;
+
+		TAILQ_REMOVE(&hwq->outstanding_tr, tr, tailq);
+		TAILQ_INSERT_HEAD(&hwq->free_tr, tr, tailq);
+
+		mtx_unlock(&hwq->qlock);
+		return (true);
+	}
+
+	mtx_unlock(&hwq->qlock);
+
+	return (false);
+}
+
 void
 ufshci_req_queue_fail(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue)

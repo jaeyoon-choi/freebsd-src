@@ -572,33 +572,57 @@ void ufshci_sysctl_initialize_ctrlr(struct ufshci_controller *ctrlr);
 int ufshci_attach(device_t dev);
 int ufshci_detach(device_t dev);
 
+bool ufshci_req_queue_reclaim_polled(struct ufshci_req_queue *req_queue,
+    struct ufshci_completion_poll_status *status);
+
 /*
  * Wait for a command to complete using the ufshci_completion_poll_cb. Used in
  * limited contexts where the caller knows it's OK to block briefly while the
  * command runs. The ISR will run the callback which will set status->done to
- * true, usually within microseconds. If not, then after one second timeout
- * handler should reset the controller and abort all outstanding requests
- * including this polled one. If still not after ten seconds, then something is
- * wrong with the driver, and panic is the only way to recover.
+ * true, usually within microseconds.
+ *
+ * If the command has not completed after ten seconds, reclaim its tracker and
+ * return an error. This happens when the bring-up runs on the same thread that
+ * would otherwise reset the controller, so nothing can complete the command
+ * for it. Reclaiming keeps a late completion from writing to the caller's
+ * stack. Returns 0 on success, ENXIO on a failed command, and ETIMEDOUT when
+ * the command never completed.
  *
  * Most commands using this interface aren't actual I/O to the drive's media so
  * complete within a few microseconds. Adaptively spin for one tick to catch the
  * vast majority of these without waiting for a tick plus scheduling delays.
  * Since these are on startup, this drastically reduces startup time.
  */
-static __inline void
-ufshci_completion_poll(struct ufshci_completion_poll_status *status)
+static __inline int
+ufshci_completion_poll(struct ufshci_req_queue *req_queue,
+    struct ufshci_completion_poll_status *status)
 {
 	int timeout = ticks + 10 * hz;
 	sbintime_t delta_t = SBT_1US;
+	bool reclaimed = false;
 
 	while (!atomic_load_acq_int(&status->done)) {
-		if (timeout - ticks < 0)
-			panic(
-			    "UFSHCI polled command failed to complete within 10s.");
+		if (timeout - ticks < 0) {
+			/*
+			 * The completion never came. Take the tracker away
+			 * so a late completion cannot touch the caller's
+			 * stack, then report the timeout. If it was already
+			 * completing on another path, wait a bounded moment
+			 * for that path to set done rather than race it.
+			 */
+			if (reclaimed)
+				panic(
+				    "UFSHCI polled command stuck completing.");
+			if (ufshci_req_queue_reclaim_polled(req_queue, status))
+				return (ETIMEDOUT);
+			reclaimed = true;
+			timeout = ticks + hz;
+		}
 		pause_sbt("ufshci_cpl", delta_t, 0, C_PREL(1));
 		delta_t = min(SBT_1MS, delta_t * 3 / 2);
 	}
+
+	return (status->error ? ENXIO : 0);
 }
 
 static __inline void
