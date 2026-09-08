@@ -507,20 +507,42 @@ out:
 	return (error);
 }
 
-int
-ufshci_req_sdb_reserve_slot(struct ufshci_req_queue *req_queue,
+static bool
+ufshci_req_sdb_take_slot(struct ufshci_hw_queue *hwq, int slot,
     struct ufshci_tracker **tr)
 {
-	struct ufshci_hw_queue *hwq = &req_queue->hwq[UFSHCI_SDB_Q];
-	uint8_t i;
+	if (hwq->act_tr[slot]->slot_state != UFSHCI_SLOT_STATE_FREE)
+		return (false);
 
-	for (i = 0; i < req_queue->num_entries; i++) {
-		if (hwq->act_tr[i]->slot_state == UFSHCI_SLOT_STATE_FREE) {
-			*tr = hwq->act_tr[i];
-			(*tr)->hwq = hwq;
-			return (0);
-		}
+	*tr = hwq->act_tr[slot];
+	(*tr)->hwq = hwq;
+	return (true);
+}
+
+int
+ufshci_req_sdb_reserve_slot(struct ufshci_req_queue *req_queue,
+    struct ufshci_tracker **tr, bool admin)
+{
+	struct ufshci_hw_queue *hwq = &req_queue->hwq[UFSHCI_SDB_Q];
+	int last = req_queue->num_entries - 1;
+	int slot;
+
+	/*
+	 * A reset sends its bring-up commands through this queue, so the
+	 * I/O it just released must not take every slot. The last slot is
+	 * held back, and admin requests search down from it so that they
+	 * take the held slot rather than one an I/O could have used.
+	 */
+	if (admin || req_queue->is_task_mgmt) {
+		for (slot = last; slot >= 0; slot--)
+			if (ufshci_req_sdb_take_slot(hwq, slot, tr))
+				return (0);
+	} else {
+		for (slot = 0; slot < last; slot++)
+			if (ufshci_req_sdb_take_slot(hwq, slot, tr))
+				return (0);
 	}
+
 	return (EBUSY);
 }
 

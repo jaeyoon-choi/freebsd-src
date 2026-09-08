@@ -837,7 +837,8 @@ _ufshci_req_queue_submit_request(struct ufshci_req_queue *req_queue,
 	if (req_queue->ctrlr->is_failed)
 		return (ENXIO);
 
-	error = req_queue->qops.reserve_slot(req_queue, &tr);
+	error = req_queue->qops.reserve_slot(req_queue, &tr,
+	    req->is_admin);
 	if (error != 0) {
 		ufshci_printf(req_queue->ctrlr, "Failed to get tracker");
 		return (error);
