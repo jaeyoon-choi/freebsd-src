@@ -1,0 +1,1 @@
+[리뷰 주의 — 동작 변경, 두 수정 반드시 함께] ① 마지막 슬롯을 I/O에게서 제외 + admin은 그 슬롯부터 아래로 순회(그래서 예약한 칸을 실제로 admin이 씀) ② EBUSY를 xpt_freeze_devq+CAM_REQUEUE_REQ|CAM_DEV_QFRZN로. ①만 단독이면 fio EIO 회귀(실측). 09-09 리뷰 반영: 원래는 admin도 0번부터 순회해 I/O 칸을 잠식하는 탓에 max_hw_pend_io를 -2로 깎았는데, 사용자가 "-1이 맞지 않나" 지적 → admin 순회를 위에서 아래로 바꿔 예약을 실체화하고 openings는 -1(원래 값·원래 주석)로 복귀. 단계별 검증: no_tracker 49→1, test_300 PASS.
