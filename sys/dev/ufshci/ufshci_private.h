@@ -513,6 +513,7 @@ void ufshci_utmr_req_queue_disable(struct ufshci_controller *ctrlr);
 int ufshci_utmr_req_queue_enable(struct ufshci_controller *ctrlr);
 void ufshci_utr_req_queue_disable(struct ufshci_controller *ctrlr);
 int ufshci_utr_req_queue_enable(struct ufshci_controller *ctrlr);
+void ufshci_req_queue_stop_watchdog(struct ufshci_req_queue *req_queue);
 void ufshci_req_queue_complete_aborted_hwq(struct ufshci_hw_queue *hwq);
 void ufshci_req_queue_fail(struct ufshci_controller *ctrlr,
     struct ufshci_req_queue *req_queue);
