@@ -296,6 +296,8 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 		ocs = hwq->utrd[tr->slot_num].overall_command_status;
 	}
 
+	cpl.ocs = ocs;
+
 	error = ufshci_req_queue_response_is_error(req_queue, ocs,
 	    &cpl.response_upiu);
 
