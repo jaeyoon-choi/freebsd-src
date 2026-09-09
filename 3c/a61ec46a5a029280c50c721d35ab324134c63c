@@ -1,0 +1,1 @@
+[리뷰 주의 — 복구 semantics] disable에서 SCHEDULED→NEED_ERROR_HANDLING claim, enable에서 ABORTED로 반환. 이 커밋이 COMPLETING enum과 complete_aborted_hwq 헬퍼를 함께 도입(MCQ 브랜치에선 별도 커밋이었음). 단계별 검증: cam_err 4→38 — 고아였던 요청이 돌아오기 시작.
