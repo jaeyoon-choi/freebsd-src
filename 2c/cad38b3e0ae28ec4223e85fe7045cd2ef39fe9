@@ -1,0 +1,1 @@
+[리뷰 주의 — 동작 변경] ctrlr_start가 int 반환, reset_task가 retry_count회 재시도 후에야 ctrlr_fail. attach 경로(config_hook)는 기존대로 첫 실패 시 fail.
