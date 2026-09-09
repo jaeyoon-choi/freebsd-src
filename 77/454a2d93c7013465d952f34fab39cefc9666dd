@@ -1,0 +1,1 @@
+[리뷰 주의 — panic 제거] X Elite 패닉 근본(reset_task가 자기 bring-up NOP을 poll로 대기, 깨울 수단이 자기 자신). 타임아웃 시 tracker를 회수해 스택 status UAF 방지 후 ETIMEDOUT. SDB(QEMU)에선 재현 불가(drop이 가짜완료) — MCQ 브랜치 test_310(10초 복구)으로 검증.
