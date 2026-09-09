@@ -1,0 +1,1 @@
+[리뷰 주의 — 동작 변경, 두 수정 반드시 함께] admin 슬롯 예약 + CAM openings -2 + EBUSY를 xpt_freeze_devq+CAM_REQUEUE_REQ|CAM_DEV_QFRZN로. admin 슬롯만 단독이면 fio EIO 회귀(실측, admin이 슬롯0부터 순회해 I/O 슬롯 잠식). 단계별 검증: no_tracker 49→1, test_300 PASS.

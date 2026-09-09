@@ -1,0 +1,1 @@
+[리뷰 주의 — CAM 상태] struct ufshci_completion에 ocs 신설, ABORTED→CAM_REQUEUE_REQ. 단계별 검증: cam_err 43→6.
