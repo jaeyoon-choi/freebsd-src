@@ -1,0 +1,1 @@
+[리뷰 주의 — 링 불변식] CQ 소비 루프가 head==tail을 empty로 읽으므로 N엔트리 링은 N-1개까지만 표현 가능. UFS CQE에는 phase 비트가 없어 CQTP 읽기가 유일한 완료 감지 수단이라 링을 끝까지 채우면 안 됨. 재현: bench.py --qds "31 32" (QD32에서 9114 → 2 MiB/s). num_trackers를 줄여 미완료 상한을 31로 묶음. UCD 풀도 따라감(매핑 검증이 num_trackers == nseg 요구). SDB 무관.
