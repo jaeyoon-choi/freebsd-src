@@ -1,0 +1,1 @@
+[리뷰 주의 — 복구 semantics] disable claim → 전 큐 기동 후 abort. COMPLETING 상태로 이중 완료 차단. is_failed면 claim 안 함.
