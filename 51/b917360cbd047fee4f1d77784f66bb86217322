@@ -1,1 +1,3 @@
 [리뷰 주의 — 복구 semantics] disable에서 SCHEDULED→NEED_ERROR_HANDLING claim, enable에서 ABORTED로 반환. 이 커밋이 COMPLETING enum과 complete_aborted_hwq 헬퍼를 함께 도입(MCQ 브랜치에선 별도 커밋이었음). 단계별 검증: cam_err 4→38 — 고아였던 요청이 돌아오기 시작.
+
+[리뷰 주의 — 레이스] 완료 스캔이 qlock 안에서 COMPLETING 선점 후 락 해제. 08-21 QEMU에서 이중 완료 GPF 재현·수정한 것. 타이밍 레이스라 단발 실행엔 서명 변화 없음(회귀 없음만 확인).
