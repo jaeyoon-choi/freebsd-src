@@ -1,0 +1,1 @@
+[리뷰 주의 — CAM 통지] ctrlr_fail(atomic 게이트로 1회)에서 저장된 bus-wide 경로로 xpt_async(AC_LOST_DEVICE). 참조: nvme_sim.c의 nvme_sim_ns_removed/fail_all_ns(BSD). xpt_async는 SIM 락 불필요(내부에서 경로 clone·simq freeze·CAM_UNLOCKED) — nvme도 nvme_ctrlr_fail에서 락 없이 호출. newbus 인터페이스(ufshci_if.m)는 소비자가 SIM 하나뿐이라 도입 안 함.
