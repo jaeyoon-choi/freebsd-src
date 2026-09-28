@@ -1,0 +1,1 @@
+[리뷰 주의 — 진단] MCQ 판정 실패의 원인을 읽을 수 있게 mcqcap을 항상 읽어 노출. X Elite에서 CAP 모드 비트가 오보(quirk 대상)라 MCQCAP 원본이 유일한 판별 수단. GB 실측: 0x00000000(QCFGPTR 포함 전 필드 0) → MCQ 미구현 확정. 리눅스도 동일(use_mcq=Y인데 hw queue 1개).
