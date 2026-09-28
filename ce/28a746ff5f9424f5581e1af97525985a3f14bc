@@ -1,0 +1,1 @@
+[리뷰 주의 — MFC 로컬 수정] enum power_stype을 ufshci_private.h에 로컬 정의. DEVMETHOD_END 충돌 해결 포함.
