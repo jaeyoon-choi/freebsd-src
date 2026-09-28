@@ -1,0 +1,1 @@
+[리뷰 주의: 충돌 해결] ufshci_pci.c의 DEVMETHOD_END 한 줄만 원본과 다름 (stable/15에 0fc6c3f7이 이미 반영됨).
