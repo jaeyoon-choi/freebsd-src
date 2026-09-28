@@ -1,0 +1,1 @@
+[리뷰 주의 — 재시도 층위] Fuchsia UFS 드라이버(BSD)의 device_manager.cc `constexpr size_t kMaxLinkStartUpAttempts = 3`를 따름(시도 3회 = 재시도 2회). 리셋 전체를 재시도하던 초안은 폐기 — 근거가 약하고(링크가 돌아온다는 가정 미검증) 실패 1회당 폴링 데드라인 10초를 태우며 ctrlr_start를 int 반환으로 바꿔야 해서 nvme 구조에서 이탈했음. 이 커밋은 재시도가 정당한 단 하나의 단계(디바이스 파워온 타이밍, 조건이 HCS.DP로 명시)만 반복하고 실패 1회 비용이 UIC 타임아웃 500ms다. attach와 hw_reset 양쪽이 ctrlr_enable을 거치므로 둘 다 이득.
