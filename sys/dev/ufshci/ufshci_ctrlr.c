@@ -387,15 +387,12 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 
 	/* Read Device Capabilities */
 	ctrlr->cap = cap = ufshci_mmio_read_4(ctrlr, cap);
-	if (ctrlr->quirks & UFSHCI_QUIRK_BROKEN_LSDBS_MCQS_CAP) {
+	if (ctrlr->quirks & UFSHCI_QUIRK_BROKEN_LSDBS_CAP)
 		ctrlr->is_single_db_supported = true;
-		ctrlr->is_mcq_supported = true;
-	} else {
+	else
 		ctrlr->is_single_db_supported = (UFSHCIV(UFSHCI_CAP_REG_LSDBS,
 						     cap) == 0);
-		ctrlr->is_mcq_supported = (UFSHCIV(UFSHCI_CAP_REG_MCQS, cap) ==
-		    1);
-	}
+	ctrlr->is_mcq_supported = (UFSHCIV(UFSHCI_CAP_REG_MCQS, cap) == 1);
 	if (!(ctrlr->is_single_db_supported || ctrlr->is_mcq_supported))
 		return (ENXIO);
 
