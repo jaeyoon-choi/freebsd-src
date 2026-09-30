@@ -607,6 +607,8 @@ ufshci_req_queue_timeout_recovery(struct ufshci_controller *ctrlr,
 	 * Step 5. All previous commands were timeout.
 	 * Recovery failed, reset the host controller.
 	 */
+	mtx_assert(&hwq->recovery_lock, MA_OWNED);
+
 	ufshci_printf(ctrlr,
 	    "Recovery step 5: Resetting controller due to a timeout.\n");
 	hwq->recovery_state = RECOVERY_WAITING;
@@ -662,8 +664,13 @@ ufshci_abort_complete(void *arg, const struct ufshci_completion *status,
 			return;
 		}
 
-		/* Abort Task failed. Perform recovery steps 2-5 */
+		/*
+		 * Abort Task failed. Perform recovery steps 2-5 under the
+		 * recovery lock, as the watchdog does.
+		 */
+		mtx_lock(&tr->hwq->recovery_lock);
 		ufshci_req_queue_timeout_recovery(tr->hwq->ctrlr, tr->hwq);
+		mtx_unlock(&tr->hwq->recovery_lock);
 	} else {
 		mtx_unlock(&tr->hwq->qlock);
 	}
