@@ -1,0 +1,1 @@
+[리뷰 주의: stable 전용 커밋] main에 없는 enum power_stype을 ufshci_private.h에 정의. 다음 커밋 3a99f31f가 원본 그대로 들어가게 하려는 것.
