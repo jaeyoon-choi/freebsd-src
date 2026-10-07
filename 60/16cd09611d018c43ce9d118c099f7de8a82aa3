@@ -1,3 +1,5 @@
 [리뷰 주의: 복구 semantics + 레이스] 두 반쪽을 한 커밋으로: ① disable에서 SCHEDULED→NEED_ERROR_HANDLING claim, enable에서 ABORTED로 반환 ② 완료 스캔도 qlock 안에서 COMPLETING 선점 후 락 해제(안 하면 check-then-act 창으로 스캔·리셋 이중 완료, 08-21 QEMU GPF 재현·수정). COMPLETING enum과 complete_aborted_hwq 헬퍼도 여기서 도입(MCQ 브랜치에선 별도 커밋이었음). 단계별 검증: cam_err 4→38(고아였던 요청이 돌아오기 시작). 스캔 선점은 타이밍 레이스라 단발 실행엔 서명 변화 없음.
 
 09-30 추가: abort 완료 경로도 SCHEDULED slot만 받아 unlock 전에 COMPLETING으로 잡는다. 전에는 상태만 보고 lock을 푼 뒤 완료해서 완료 스캔과 이중 완료가 가능했고, 격리된 TIMEOUT slot(req == NULL)도 통과했다. 완료 후 재사용된 slot에 abort 응답이 늦게 오는 경우는 upstream부터 있던 문제로 남아 있다.
+
+10-07 추가: disable과 enable 사이에 제출된 I/O는 doorbell을 울리지 않고 NEED_ERROR_HANDLING으로 둔다(submit_tracker). admin은 제외한다. 워치독이 bring-up 중에 RECOVERY_WAITING을 세우면 리셋 태스크 자신의 poll이 EBUSY로 무한 대기하기 때문이다. mcq의 a7204d52 이후에는 submit이 먼저 EBUSY로 돌려보내므로 이 코드에 도달하지 않는다.
