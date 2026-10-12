@@ -2,3 +2,5 @@
 
 09-30 추가: 리셋의 disable이 잡은 추적자(NEED_ERROR_HANDLING)는 reclaim이 EBUSY로 구분하고, poll은 panic 시계 없이 기다린다. 리셋은 성공하면 complete_aborted로, 실패하면 fail 경로로 그 추적자를 반드시 끝낸다. 근거는 코드 추론이다: 죽은 링크에서 hw_reset이 최대 약 7초(HCE 2+2, link startup 3회×1초) 걸려 poll의 10+1초 창을 넘길 수 있다. 재현 테스트는 없다.
 09-30 정리: 폴링 호출자가 모두 transfer 큐라 UTMRLCLR 변형은 도달 불가여서 뺐다.
+
+10-12 축소(사용자 '오버 수정' 점검): UTRLCLR로 슬롯을 비우는 경로(clear_slot qops, ufshci_req_sdb_utr_clear_slot, cleared 분기)를 삭제. QEMU가 UTRLCLR 쓰기를 무시해 한 번도 실행된 적이 없고 실기기 확인도 없었다. 타임아웃이면 항상 격리(TIMEOUT)하고 리셋하며, sdb enable이 FREE로 되돌린다. 이것이 QEMU에서 실제로 돌던 경로이자 MCQ 방식이다. 요청과 ioctl 버퍼가 리셋 전에 해제되는 문제(1차 리뷰)는 그대로 남는다.
