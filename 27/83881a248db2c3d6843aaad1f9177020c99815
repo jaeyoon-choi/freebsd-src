@@ -1,0 +1,4 @@
+[리뷰 주의: panic 제거와 슬롯 정리] X Elite 패닉의 근본(reset_task가 자기 bring-up NOP을 poll로 대기하고, 깨울 수단이 자기 자신). 타임아웃 시 트래커를 COMPLETING으로 잡고 UTRLCLR로 슬롯을 지운 뒤 doorbell 비트가 내려가면 FREE, 안 내려가면 TIMEOUT으로 격리하고 리셋을 요청한다(sdb_enable이 복귀). 슬롯 정리가 필요한 이유: 실HW에서 doorbell이 선 채 재사용되면 새 요청이 옛 명령의 완료를 받는다. 09-28에 ioctl을 새 poll에 맞추며 사용자 스레드 패스스루로 도달 가능해져 09-29에 추가. 검증 한계: QEMU는 UTRLCLR 쓰기를 무시하므로 "지웠는데 안 내려가는" 격리 경로는 실기기 전용. MCQ는 단일 항목 제거 레지스터가 없어 mcq 브랜치에서 항상 격리 후 리셋(test_310 통과).
+
+09-30 추가: 리셋의 disable이 잡은 추적자(NEED_ERROR_HANDLING)는 reclaim이 EBUSY로 구분하고, poll은 panic 시계 없이 기다린다. 리셋은 성공하면 complete_aborted로, 실패하면 fail 경로로 그 추적자를 반드시 끝낸다. 근거는 코드 추론이다: 죽은 링크에서 hw_reset이 최대 약 7초(HCE 2+2, link startup 3회×1초) 걸려 poll의 10+1초 창을 넘길 수 있다. 재현 테스트는 없다.
+09-30 정리: 폴링 호출자가 모두 transfer 큐라 UTMRLCLR 변형은 도달 불가여서 뺐다.
