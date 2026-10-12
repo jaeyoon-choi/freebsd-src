@@ -1,0 +1,5 @@
+[리뷰 주의: 레이스] 완료 스캔이 qlock 안에서 'SCHEDULED이고 비트 0'만 확인하고 상태는 그대로 둔 채 락을 놓은 뒤 완료했다. 그 창에서 실패 경로(qlock만 쥠)나 abort 완료가 같은 슬롯을 집어 이중 완료가 가능했다(08-21 QEMU GPF 재현·수정). 완료하는 모든 경로가 락 안에서 COMPLETING으로 바꾼 뒤 락을 놓는다. 실패 경로의 표시도 NEED_ERROR_HANDLING에서 COMPLETING으로 바꿨다(다음 커밋이 NEED_ERROR_HANDLING을 '리셋이 맡아 둠' 뜻으로 쓴다). 스캔·disable·enable은 recovery_lock으로 서로 막히므로 이 claim이 필요한 상대는 fail, abort 완료, (뒤 커밋의) reclaim_polled다. 타이밍 레이스라 단발 실행엔 서명 변화 없음.
+
+09-30 추가(분리 전 커밋에서 옮김): abort 완료 경로도 SCHEDULED slot만 받아 unlock 전에 COMPLETING으로 잡는다. 전에는 FREE만 아니면 완료해서 스캔이나 fail과 이중 완료가 가능했고, 뒤 커밋의 격리된 TIMEOUT slot(req == NULL)도 통과했다. 완료 후 재사용된 slot에 abort 응답이 늦게 오는 경우는 upstream부터 있던 문제로 남아 있다.
+
+10-12: 원래 'reclaim in-flight requests' 한 커밋이었던 것을 사용자 요청으로 A(이 커밋)·B(reclaim)·C(hold back) 셋으로 나눴다.
