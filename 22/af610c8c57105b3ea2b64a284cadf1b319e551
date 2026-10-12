@@ -1,0 +1,1 @@
+10-12 축소(사용자 '오버 수정' 점검): enable_aborts 런타임 sysctl 삭제. hw.ufshci.enable_aborts tunable과 겹치고, 쓰는 테스트(test_330)는 QEMU에서 돌지 않는다. test_330은 sysctl이 없으면 skip한다.
