@@ -1,0 +1,3 @@
+[리뷰 주의: 리셋 창] disable은 그 순간 outstanding인 요청만 맡는다. 그 뒤 들어온 I/O는 submit_tracker에서 recovery_state != RECOVERY_NONE이면 doorbell 대신 NEED_ERROR_HANDLING으로 두고 deadline을 SBT_MAX로 둔다(10-07 1차 리뷰 발견). 대기 처리는 disable부터가 아니라 timeout_recovery가 WAITING을 세운 순간부터 시작된다. admin은 제외한다: 워치독이 bring-up 중에 WAITING을 세우면 리셋 태스크 자신의 poll이 EBUSY로 무한 대기하기 때문이다. deadline을 안 바꾸면 enable 직후 complete_aborted_hwq 전에 워치독이 ABORT TASK를 보낼 수 있다(10-07 재점검). mcq의 a7204d52 이후에는 submit이 먼저 EBUSY로 돌려보내므로 이 코드에 도달하지 않는다. recovery_state는 qlock만 쥐고 읽는다(워치독 쪽 쓰기는 recovery_lock만, 결과는 같아 사소함).
+
+10-12 결정: 리셋 전 CAM 동결(xpt_freeze_simq, ahci 방식) 대안을 검토했으나 지금 방식 유지. nvme가 recovery_state != NONE이면 queued_req에 넣었다가 복구 뒤 재제출하는 것과 같은 자리·같은 판단이고, ioctl 경로도 함께 막힌다. CAM 동결은 GB 리셋 작업(자기 큐 SSU + 리셋 중 동결)에서 다룬다.
