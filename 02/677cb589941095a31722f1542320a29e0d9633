@@ -6,3 +6,5 @@
 10-12 축소(사용자 '오버 수정' 점검): UTRLCLR로 슬롯을 비우는 경로(clear_slot qops, ufshci_req_sdb_utr_clear_slot, cleared 분기)를 삭제. QEMU가 UTRLCLR 쓰기를 무시해 한 번도 실행된 적이 없고 실기기 확인도 없었다. 타임아웃이면 항상 격리(TIMEOUT)하고 리셋하며, sdb enable이 FREE로 되돌린다. 이것이 QEMU에서 실제로 돌던 경로이자 MCQ 방식이다. 요청과 ioctl 버퍼가 리셋 전에 해제되는 문제(1차 리뷰)는 그대로 남는다.
 
 10-12 큐 방식 반영: reclaim_polled가 트래커에서 못 찾으면 hwq->queued_req를 뒤져 cb_arg가 같으면 EBUSY(리셋에 맡김). poll은 EBUSY면 10초 창을 다시 주고 기다린다(리셋이 그 명령을 다시 보내므로 1초 재검사로 회수하면 안 됨). EINPROGRESS만 1초 뒤 panic.
+
+10-13 2차 축소(사용자 '2ca68230 너무 오버 아니냐, reclaim_polled가 너무 길다'): 격리(TIMEOUT)·sdb enable 복귀 루프·outstanding_tr 제거·즉시 free·reclaim의 ufshci_ctrlr_reset 호출·EBUSY 분기·printf를 모두 뺐다. 남은 것은 qlock 아래에서 cb_arg==status인 요청(트래커 또는 queued_req)의 cb_fn을 NULL로 바꾸는 detach_polled(약 40줄)와, COMPLETING이면 EINPROGRESS로 1초 더 기다리는 분기뿐이다. 슬롯은 그대로 두고 워치독·리셋·실패 경로가 평소처럼 완료하며 cb_fn NULL은 complete_tracker/manual_complete_tracker가 이미 건너뛴다. 근거: 격리 복귀 경로는 QEMU에서 한 번도 실행된 적이 없었고(test_310/320은 컨트롤러 사망으로 끝남), 리셋 권한은 워치독 하나로 두는 편이 단순하다. 리셋에 잡힌 ioctl 명령은 ABORTED 대신 ETIMEDOUT을 받는다. 이 커밋은 이제 sdb.c를 건드리지 않는다. mcq의 다중 hwq 판은 detach_polled_hwq 헬퍼 + q 루프.
