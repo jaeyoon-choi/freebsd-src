@@ -1,0 +1,5 @@
+10-12 축소(사용자 '오버 수정' 점검): enable_aborts 런타임 sysctl 삭제. hw.ufshci.enable_aborts tunable과 겹치고, 쓰는 테스트(test_330)는 QEMU에서 돌지 않는다. test_330은 sysctl이 없으면 skip한다.
+
+10-13 amend: tracker.debug_dropped 추가. GB test_330(abort 경로)에서 drop된 doorbell을 SDB 완료 스캔이 'SCHEDULED && 비트 0'으로 즉시 완료(OCS 0xf)해 워치독이 abort를 보낼 기회가 없었다('the watchdog never sent an abort'). 주석 'leave the request for the watchdog to find'대로 동작하도록 drop 시 플래그를 세우고 sdb process_cpl이 그 슬롯을 건너뛴다. 제출마다 다시 쓰므로 재사용 트래커에 안 남음. MCQ는 CQ 기반이라 영향 없음. 부수 효과: QEMU SDB test_300의 drop 라운드가 즉시 완료 대신 워치독 타임아웃+리셋을 거친다(MCQ와 같은 경로).
+
+10-13 2차 amend: debug_drop이 task management 요청(abort)도 I/O로 세어 drop했다(1차 리뷰부터 '사소함'으로 적어 둔 발견). GB test_330 둘째 테스트(drop 1000)에서 abort 요청이 drop되어 영영 안 끝나고, UTR 워치독이 같은 트래커에 0.5초마다 abort 재전송 → UTMR 슬롯 소진 'Failed to get tracker' → step 5 리셋 → 재큐 → 반복으로 1,062초. !req_queue->is_task_mgmt 조건을 붙였다. 부수 발견: abort가 안 끝날 때의 재전송 순환은 드라이버 약점(backup/abort-reissue 커밋의 실기기 근거) → 보류 목록.
