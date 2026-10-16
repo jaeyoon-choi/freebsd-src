@@ -1,0 +1,1 @@
+[리뷰 주의: 동작 전환점] 기본 MCQ attach. use_mcq=0으로 SDB 강제. EBUSY는 devq freeze + CAM_REQUEUE_REQ. 10-16 리뷰(B1) 반영: MCQ 모드에서는 enable_aborts = 0. MCQ 완료 경로가 UCD 주소로 트래커를 찾으므로, abort 뒤 해제된 슬롯이 재사용되면 늦게 온 완료가 새 요청을 완료할 수 있다. SQ 정리(SQ cleanup)를 드라이버가 구현하기 전까지는 워치독이 리셋으로 복구한다. 기본값을 켜 두는 이유: QEMU에서 전 스위트가 녹색이고, SDB로 되돌릴 길(use_mcq=0)과 enable 실패 시 힌트 메시지(커밋 14)가 있다.

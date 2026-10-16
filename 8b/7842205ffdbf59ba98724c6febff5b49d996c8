@@ -1,0 +1,1 @@
+10-12 재작성: reset_fix가 리셋 중 I/O를 드라이버 큐(queued_req)로 붙잡게 되면서 이 커밋의 'EBUSY로 튕기기'는 뺐다. 남은 것은 복구 중 admin 재시도 거부(재시도는 submit 경로의 큐 검사를 건너뛰므로)와 MCQ 완료 스캔 건너뛰기(CQIS 먼저 클리어). complete_tracker 재구성(콜백을 락 밖에서, 해제는 락 안에서)은 유지하고 끝에 큐 배출을 다시 붙였다. 10-13 정정: 배출 조건은 io_ready && !is_failed다. mcq enable_hwq의 배출은 io_ready 도입으로 뺐고, bring-up 끝의 resume()이 모든 hwq를 배출한다.
