@@ -1,0 +1,1 @@
+[리뷰 주의: 태그 공간] task_tag = hwq->id * num_entries + slot_num. TM 요청(abort)이 LUN+태그로 대상을 지목하므로 큐 사이에서 겹치면 안 된다. 8비트 필드라 큐 수 상한은 커밋 22(size the io queue count)가 UINT8_MAX / num_entries로 적용한다. 10-16 리뷰 반영: 계산식이 UINT8_MAX를 넘지 않는지 KASSERT 추가. SDB는 id 0이라 값이 그대로다.
