@@ -1,0 +1,1 @@
+[리뷰 주의: SQ 채움 불변식] 슬롯은 free tracker 풀에서만 나오고 num_trackers(31) < num_entries(32)이므로 SQ 링이 가득 찰 수 없다. 그래서 reserve 경로는 SQHP를 읽지 않는다. 디스크립터는 sq_tail 위치에 쓰고 tr->slot_num은 트래커만 가리킨다(링 인덱스가 아님). 도어벨은 바이트 오프셋(SQTP)이다.
