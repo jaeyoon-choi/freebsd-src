@@ -1,3 +1,5 @@
 [리뷰 주의: 리셋 semantics] QEMU 실측: HCE 리셋/큐 재생성이 hp/tp 보존 → 포인터 0 가정 시 이중완료(UAF 재현). SQHP/CQTP 채택 + 링 마스킹 + QCFGPTR 창 검증 + enable 확인 + 부분 실패 롤백.
 
 09-30 추가: 큐별 런타임 오프셋(SQDAO/SQISAO/CQDAO/CQISAO)도 레지스터 창 안인지 검사한다. 창 밖 MMIO는 arm64에서 panic이다. QCFGPTR은 construct 때 캐시한 MCQCAP에서 읽는다.
+
+10-16 추가: MCQCONFIG.MAC는 CAP.NUTRS + 1로 둔다. 스펙 원문(MAC 정의)을 확인하기 전이라 장치의 bQueueDepth로 제한하지 않는다. QEMU는 MAC를 저장만 하고 검사하지 않는다.
