@@ -398,15 +398,10 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 		req->request_upiu.header.task_tag,
 	    ("response task_tag does not match request task_tag\n"));
 
-	if (!retry) {
-		if (req->payload_valid) {
-			bus_dmamap_sync(req_queue->dma_tag_payload,
-			    tr->payload_dma_map,
-			    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
-		}
-		/* Copy response from the command descriptor */
-		if (req->cb_fn)
-			req->cb_fn(req->cb_arg, &cpl, error);
+	if (!retry && req->payload_valid) {
+		bus_dmamap_sync(req_queue->dma_tag_payload,
+		    tr->payload_dma_map,
+		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 	}
 
 	mtx_lock(&hwq->qlock);
@@ -418,26 +413,35 @@ ufshci_req_queue_complete_tracker(struct ufshci_tracker *tr)
 		req->retries++;
 		ufshci_req_queue_submit_tracker(req_queue, tr,
 		    req->data_direction);
-	} else {
-		if (req->payload_valid) {
-			bus_dmamap_unload(req_queue->dma_tag_payload,
-			    tr->payload_dma_map);
-		}
-
-		/* Clear tracker */
-		ufshci_free_request(req);
-		tr->req = NULL;
-		tr->slot_state = UFSHCI_SLOT_STATE_FREE;
-
-		TAILQ_REMOVE(&hwq->outstanding_tr, tr, tailq);
-		TAILQ_INSERT_HEAD(&hwq->free_tr, tr, tailq);
-
-		/* A slot came free, so the next held I/O can go out. */
-		if (req_queue->ctrlr->io_ready && !req_queue->ctrlr->is_failed)
-			ufshci_req_queue_submit_queued(hwq);
+		mtx_unlock(&hwq->qlock);
+		return;
 	}
 
-	mtx_unlock(&tr->hwq->qlock);
+	if (req->payload_valid) {
+		bus_dmamap_unload(req_queue->dma_tag_payload,
+		    tr->payload_dma_map);
+	}
+
+	/*
+	 * Free the slot before the callback. CAM sends its next request
+	 * from inside the callback, and with every slot in use that
+	 * request needs this one.
+	 */
+	tr->req = NULL;
+	tr->slot_state = UFSHCI_SLOT_STATE_FREE;
+
+	TAILQ_REMOVE(&hwq->outstanding_tr, tr, tailq);
+	TAILQ_INSERT_HEAD(&hwq->free_tr, tr, tailq);
+
+	/* A slot came free, so the next held I/O can go out. */
+	if (req_queue->ctrlr->io_ready && !req_queue->ctrlr->is_failed)
+		ufshci_req_queue_submit_queued(hwq);
+
+	mtx_unlock(&hwq->qlock);
+
+	if (req->cb_fn)
+		req->cb_fn(req->cb_arg, &cpl, error);
+	ufshci_free_request(req);
 }
 
 bool
