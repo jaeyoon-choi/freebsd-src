@@ -78,6 +78,8 @@ ufshci_ctrlr_reinit_after_max_gear_switch(struct ufshci_controller *ctrlr)
 static void
 ufshci_ctrlr_start(struct ufshci_controller *ctrlr, bool resetting)
 {
+	uint32_t depth;
+
 	TSENTER();
 
 	/*
@@ -157,6 +159,16 @@ ufshci_ctrlr_start(struct ufshci_controller *ctrlr, bool resetting)
 		ufshci_ctrlr_fail(ctrlr);
 		return;
 	}
+
+	/*
+	 * Every MCQ queue feeds the one device command queue, so its
+	 * depth bounds what CAM may send. Keep one command for the admin
+	 * queue. A depth of 0 means per-LU queueing, which this does not
+	 * cover. The SIM takes the count when it attaches below.
+	 */
+	depth = ctrlr->ufs_dev.dev_desc.bQueueDepth;
+	if (ctrlr->enable_mcq && depth > 1)
+		ctrlr->max_hw_pend_io = min(ctrlr->max_hw_pend_io, depth - 1);
 
 	if (ufshci_dev_config_write_booster(ctrlr)) {
 		ufshci_ctrlr_fail(ctrlr);
@@ -501,10 +513,39 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 		    256 / UFSHCI_MCQ_ENTRIES - 1);
 		ctrlr->num_io_queues = min(ctrlr->num_io_queues,
 		    max_io_queues);
-	} else {
+
+		/*
+		 * Check the queue registers after the reset, as the enable
+		 * path sees them, and before the queue operations are
+		 * picked, so the single doorbell can still take over.
+		 */
+		if (ufshci_req_mcq_check_layout(ctrlr,
+		    ctrlr->num_io_queues + 1) != 0) {
+			if (!ctrlr->is_single_db_supported)
+				return (ENXIO);
+			ufshci_printf(ctrlr, "using the single doorbell\n");
+			ctrlr->enable_mcq = false;
+
+			/* The reset enabled the MCQ interrupts, so redo it. */
+			error = ufshci_ctrlr_hw_reset(ctrlr);
+			if (error)
+				return (error);
+		}
+	}
+	if (!ctrlr->enable_mcq) {
 		/* The single doorbell mode drives one I/O queue. */
 		ctrlr->num_io_queues = 1;
 	}
+
+	/*
+	 * An aborted command may still complete later. The MCQ completion
+	 * path finds the tracker by its descriptor address, so a slot
+	 * freed after an abort could take that late completion. Leave
+	 * aborts off in MCQ mode until the driver can clean up a
+	 * submission queue, and let the watchdog reset the controller.
+	 */
+	if (ctrlr->enable_mcq)
+		ctrlr->enable_aborts = 0;
 
 	/* Read the UECPA register to clear */
 	ufshci_mmio_read_4(ctrlr, uecpa);
@@ -518,21 +559,38 @@ ufshci_ctrlr_construct(struct ufshci_controller *ctrlr, device_t dev)
 	if (error)
 		return (error);
 
+	if (ctrlr->enable_mcq)
+		ufshci_printf(ctrlr, "MCQ enabled with %u I/O queues\n",
+		    ctrlr->num_io_queues);
+	else
+		ufshci_printf(ctrlr, "Single doorbell mode enabled\n");
+
 	/* Allocate and initialize UTP Transfer Request List or SQ/CQ. */
 	error = ufshci_utr_req_queue_construct(ctrlr);
 	if (error)
 		return (error);
 
-	/*
-	 * Two of the slots stay out of the count handed to CAM. The
-	 * reserve step keeps the last one for admin requests, so a
-	 * reset's bring-up command always has somewhere to land. The one
-	 * after it is headroom the queue needs to stay busy. Giving CAM
-	 * as many openings as there are slots that I/O can use measured
-	 * at about a seventh of the throughput, so do not raise this
-	 * without testing it under load.
-	 */
-	ctrlr->max_hw_pend_io = ctrlr->transfer_req_queue.num_entries - 2;
+	if (ctrlr->enable_mcq) {
+		/*
+		 * The admin queue is separate. Each I/O queue ring
+		 * holds one slot back to tell full from empty.
+		 */
+		ctrlr->max_hw_pend_io = ctrlr->num_io_queues *
+		    (UFSHCI_MCQ_ENTRIES - 1);
+	} else {
+		/*
+		 * Two of the slots stay out of the count handed to
+		 * CAM. The reserve step keeps the last one for admin
+		 * requests, so a reset's bring-up command always has
+		 * somewhere to land. The one after it is headroom the
+		 * queue needs to stay busy. Giving CAM as many
+		 * openings as there are slots that I/O can use
+		 * measured at about a seventh of the throughput, so do
+		 * not raise this without testing it under load.
+		 */
+		ctrlr->max_hw_pend_io =
+		    ctrlr->transfer_req_queue.num_entries - 2;
+	}
 
 	/* Create a thread for the taskqueue. */
 	ctrlr->taskqueue = taskqueue_create("ufshci_taskq", M_WAITOK,
